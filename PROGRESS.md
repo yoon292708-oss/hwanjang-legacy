@@ -13,7 +13,7 @@
 ---
 
 ## 📁 폴더 구조 (`crazy-odyssey/`)
-- `public/index.html` — 시작 화면(비밀번호 4자리 + 로그인/회원가입/게스트) 및 게임 HUD
+- `public/index.html` — 시작 화면(비밀번호 4자리 + 로그인/회원가입/게스트) 및 게임 HUD (스킬 1~4, 퀘스트, 도감)
 - `public/style.css` — 게임 화면 및 UI 스타일
 - `public/js/` — 게임 로직 (`game.js`, `world.js`, `combat.js`, `assets.js`, `audio.js`, `data.js`)
 - `public/assets/` — 3D 캐릭터, 몬스터, 성, 마을, 자연물, 아이템 GLB 모델
@@ -30,9 +30,15 @@
 3. **비주얼 버그 수정**:
    - 용사(검사 등) GLB 내장 무기가 겹쳐 검이 3개로 보이던 문제 수정 (`public/js/assets.js`, `public/js/data.js`, `public/js/game.js`)
    - 일부 몬스터가 어둡거나 텍스처가 누락된 것처럼 보이던 재질/조명 문제 수정
+   - **꿀벌(`Bee.glb`), 말벌(`Wasp.glb`), 게(`Crab.glb`) 등 모습이 안 보이던 버그 수정**: `skinWeight`의 `NaN` 값을 로딩 시 자동 보정하고(`assets.js`), `Flying` 애니메이션 폴백 추가(`combat.js`)
 4. **입장 비밀번호 잠금**: 사이트 입장 시 4자리 숫자 비밀번호 `5090` 입력 필수 적용 (`public/index.html`, `public/js/game.js`, `server.js`)
-5. **GitHub 저장소 생성 및 업로드**: `https://github.com/yoon292708-oss/hwanjang-legacy` (`main` 브랜치)
-6. **웹 배포 및 플레이 테스트 완료**: Render 무료 웹 서비스 배포 성공 & `5090` 입장/플레이 정상 확인
+5. **신규 직업 4종 추가 (총 15종) & 4번 필살기 추가**:
+   - 추가 직업: `신궁수(ranger)`, `용기사(lancer)`, `성기사(paladin)`, `검성(samurai)`
+   - 모든 직업에 4번째 필살기 추가 + `barrage` 다발 투사체 스킬 추가
+6. **레벨별 2·3·4번 기술 해금**: `[1]` Lv.1 / `[2]` Lv.3 / `[3]` Lv.7 / `[4]` Lv.12 달성 시 해금 (`SKILL_REQ_LEVELS`)
+7. **숨겨진 전직관 5인 시스템**: 마을 중앙 전직 교관 제거 → 맵 5개 지역에 숨겨진 전직관 배치 (`기사단장 아서`, `투기장 교관 카인`, `그림자 선장 로빈`, `천공의 성녀 세레나`, `심연의 마도사 베라`). 직접 찾아가 `[E]` 대화해야 신규 직업 해금 가능, 마을에는 **길드장 엘린**(퀘스트/힌트) 배치
+8. **퀘스트 확장**: 메인 퀘스트 14종(꿀벌·전직관 발견·레벨 달성·각 지역 보스 포함) + 서브 퀘스트 7종 + 퀘스트 게시판 모달 (`[L]`)
+9. **GitHub 저장소 및 Render 자동 배포**: `https://github.com/yoon292708-oss/hwanjang-legacy` (`main` 푸시 시 Render 자동 업데이트)
 
 ---
 

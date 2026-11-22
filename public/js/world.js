@@ -5,7 +5,7 @@
 // =============================================================
 import * as THREE from 'three';
 import { instance, staticParts } from './assets.js';
-import { ZONES, REGIONS } from './data.js';
+import { ZONES, REGIONS, TRAINERS } from './data.js';
 
 export function isOnBridgeOrRoad(x, z) {
   const r = Math.hypot(x, z);
@@ -366,15 +366,27 @@ export class WorldBuilder {
     this._buildBridgesAndPaths(token);
 
     const npcDefs = [
-      { id: 'class', name: '⚔️ 전직 교관 아서', path: 'npc_m/King.glb', x: -10, z: -8, rotY: 0.5, action: 'openClass' },
+      { id: 'quest', name: '📜 길드장 엘린 (퀘스트/힌트)', path: 'npc_f/Adventurer.glb', x: -10, z: -8, rotY: 0.5, action: 'openQuest' },
       { id: 'upgrade', name: '⚒️ 대장장이 볼칸', path: 'npc_m/Worker.glb', x: 13, z: -5, rotY: -0.6, action: 'openUpgrade' },
       { id: 'dungeon', name: '🌀 차원 안내인 세라', path: 'npc_f/Witch.glb', x: 14, z: 8, rotY: -1.1, action: 'openDungeon' },
       { id: 'market', name: '💎 거래소 상인 리나', path: 'npc_f/Casual.glb', x: 10, z: 13, rotY: -2.4, action: 'openMarket' },
+      ...Object.values(TRAINERS).map((tr) => ({
+        id: tr.id,
+        name: tr.name,
+        path: tr.model,
+        x: tr.x,
+        z: tr.z,
+        rotY: tr.rotY,
+        action: 'openClass',
+        trainerId: tr.id,
+        isTrainer: true,
+      })),
     ];
 
     await Promise.all([
       ...villageProps.map(([p, x, z, o]) => this._place(p, x, z, { ...o, zoneId: 'world' }, token)),
       ...npcDefs.map(async (n) => {
+        const ny = getTerrainY('world', n.x, n.z);
         const inst = await this._place(n.path, n.x, n.z, { height: 2.1, rotY: n.rotY, zoneId: 'world' }, token);
         if (inst && token === this.buildToken) {
           inst.model.traverse((b) => {
@@ -384,7 +396,16 @@ export class WorldBuilder {
             if (b.name === 'LowerArmL') b.rotation.z = -0.2;
             if (b.name === 'LowerArmR') b.rotation.z = 0.2;
           });
-          this.npcs.push({ ...n, inst, y: 0 });
+          if (n.isTrainer) {
+            const aura = new THREE.Mesh(
+              new THREE.RingGeometry(1.15, 1.5, 32),
+              new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+            );
+            aura.rotation.x = -Math.PI / 2;
+            aura.position.set(n.x, ny + 0.08, n.z);
+            this.group.add(aura);
+          }
+          this.npcs.push({ ...n, inst, y: ny });
         }
       }),
       this._buildArenaArea(token),
@@ -730,7 +751,7 @@ export class WorldBuilder {
     }
     for (let i = 0; i < this.npcs.length; i++) {
       const n = this.npcs[i];
-      if (n.inst?.root) n.inst.root.position.y = Math.sin(t * 2.2 + i) * 0.04;
+      if (n.inst?.root) n.inst.root.position.y = (n.y || 0) + Math.sin(t * 2.2 + i) * 0.04;
     }
     for (const w of this.waterMeshes) {
       w.mesh.position.y = w.baseY + Math.sin(t * 1.8) * 0.035;

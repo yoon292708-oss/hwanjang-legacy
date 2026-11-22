@@ -62,7 +62,7 @@
         <span><b>Space</b> 점프</span>
         <span><b>우드래그</b> 시점회전</span>
         <span><b>좌클릭</b> 기본공격</span>
-        <span><b>1 / 2 / 3</b> 직업 스킬</span>
+        <span><b>1 / 2 / 3 / 4</b> 직업 스킬</span>
         <span><b>Q</b> 대시</span>
         <span><b>F</b> 가드·패링</span>
         <span><b>R</b> 회복</span>
@@ -128,11 +128,11 @@
         <canvas id="minimap" width="140" height="140"></canvas>
         <div id="online-badge" class="online-badge">🌐 1명 접속</div>
       </div>
-      <div class="hud-panel quest-panel">
-        <div class="quest-header">📜 메인 퀘스트</div>
+      <div id="quest-panel" class="hud-panel quest-panel clickable">
+        <div class="quest-header">📜 메인 퀘스트 <span class="quest-more">전체보기 ▸</span></div>
         <div id="quest-title" class="quest-title">봄의 시작</div>
         <div id="quest-desc" class="quest-desc">꽃잎 슬라임 4마리 처치 (0/4)</div>
-        <div id="quest-reward" class="quest-reward">보상: 180G · 🔮3 · 💎5</div>
+        <div id="quest-reward" class="quest-reward">보상: 200G · 🔮3 · 💎5</div>
         <div class="daily-row">
           <span id="daily-text">📅 일일: 몬스터 10처치 (0/10)</span>
           <button id="btn-daily-claim" class="mini-btn hidden">수령</button>
@@ -140,7 +140,8 @@
       </div>
       <div class="menu-btns">
         <button id="btn-auto" class="btn-menu">🤖 자동 <kbd>Z</kbd></button>
-        <button id="btn-open-class" class="btn-menu">⚔️ 전직 <kbd>J</kbd></button>
+        <button id="btn-open-quest" class="btn-menu">📜 퀘스트 <kbd>L</kbd></button>
+        <button id="btn-open-class" class="btn-menu">⚔️ 전직도감 <kbd>J</kbd></button>
         <button id="btn-open-upgrade" class="btn-menu">⚒️ 강화 <kbd>U</kbd></button>
         <button id="btn-open-dungeon" class="btn-menu">🌀 던전 <kbd>B</kbd></button>
         <button id="btn-open-map" class="btn-menu">🗺️ 맵 <kbd>M</kbd></button>
@@ -176,8 +177,9 @@
     <div id="pc-skill-bar" class="skill-bar">
       <div class="skill-slot clickable" data-act="attack"><div class="slot-key">LMB</div><div class="slot-name">기본공격</div></div>
       <div class="skill-slot clickable" data-act="s1"><div class="slot-key">1</div><div id="s1-name" class="slot-name">스킬1</div><div id="s1-cd" class="cd-overlay hidden"></div></div>
-      <div class="skill-slot clickable" data-act="s2"><div class="slot-key">2</div><div id="s2-name" class="slot-name">스킬2</div><div id="s2-cd" class="cd-overlay hidden"></div></div>
-      <div class="skill-slot clickable" data-act="s3"><div class="slot-key">3</div><div id="s3-name" class="slot-name">궁극기</div><div id="s3-cd" class="cd-overlay hidden"></div></div>
+      <div id="slot-s2" class="skill-slot clickable" data-act="s2"><div class="slot-key">2</div><div id="s2-name" class="slot-name">스킬2</div><div id="s2-cd" class="cd-overlay hidden"></div><div id="s2-lock" class="lock-overlay hidden">🔒 Lv.3</div></div>
+      <div id="slot-s3" class="skill-slot clickable" data-act="s3"><div class="slot-key">3</div><div id="s3-name" class="slot-name">스킬3</div><div id="s3-cd" class="cd-overlay hidden"></div><div id="s3-lock" class="lock-overlay hidden">🔒 Lv.7</div></div>
+      <div id="slot-s4" class="skill-slot clickable" data-act="s4"><div class="slot-key">4</div><div id="s4-name" class="slot-name">필살기</div><div id="s4-cd" class="cd-overlay hidden"></div><div id="s4-lock" class="lock-overlay hidden">🔒 Lv.12</div></div>
       <div class="skill-slot clickable" data-act="dash"><div class="slot-key">Q</div><div class="slot-name">대시</div><div id="dash-cd" class="cd-overlay hidden"></div></div>
       <div class="skill-slot clickable" data-act="guard"><div class="slot-key">F</div><div class="slot-name">가드/패링</div><div id="guard-active" class="guard-glow hidden"></div></div>
       <div class="skill-slot clickable" data-act="heal"><div class="slot-key">R</div><div class="slot-name">회복</div><div id="heal-cd" class="cd-overlay hidden"></div></div>
@@ -191,6 +193,7 @@
         <button class="mob-btn" data-act="s1">1</button>
         <button class="mob-btn" data-act="s2">2</button>
         <button class="mob-btn" data-act="s3">3</button>
+        <button class="mob-btn" data-act="s4">4</button>
         <button class="mob-btn" data-act="dash">Q</button>
         <button class="mob-btn" data-act="guard">F</button>
         <button class="mob-btn" data-act="heal">R</button>

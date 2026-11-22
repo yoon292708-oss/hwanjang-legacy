@@ -21,6 +21,27 @@ export function loadGLB(path) {
           if (o.isMesh) {
             o.castShadow = true;
             o.receiveShadow = true;
+            if (o.isSkinnedMesh) {
+              o.frustumCulled = false;
+              const sw = o.geometry?.attributes?.skinWeight;
+              if (sw) {
+                let fixed = false;
+                for (let i = 0; i < sw.count; i++) {
+                  let x = sw.getX(i), y = sw.getY(i), z = sw.getZ(i), w = sw.getW(i);
+                  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w) || (x + y + z + w) <= 0) {
+                    x = Number.isFinite(x) ? Math.max(0, x) : 0;
+                    y = Number.isFinite(y) ? Math.max(0, y) : 0;
+                    z = Number.isFinite(z) ? Math.max(0, z) : 0;
+                    w = Number.isFinite(w) ? Math.max(0, w) : 0;
+                    const sum = x + y + z + w;
+                    if (sum > 0) sw.setXYZW(i, x / sum, y / sum, z / sum, w / sum);
+                    else sw.setXYZW(i, 1, 0, 0, 0);
+                    fixed = true;
+                  }
+                }
+                if (fixed) sw.needsUpdate = true;
+              }
+            }
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             mats.forEach((m) => {
               if (!m) return;
@@ -50,6 +71,12 @@ export function loadGLB(path) {
   return p;
 }
 
+function isFiniteBox(b) {
+  return b && !b.isEmpty()
+    && Number.isFinite(b.min.x) && Number.isFinite(b.min.y) && Number.isFinite(b.min.z)
+    && Number.isFinite(b.max.x) && Number.isFinite(b.max.y) && Number.isFinite(b.max.z);
+}
+
 function measure(url, scene) {
   if (metaCache.has(url)) return metaCache.get(url);
   scene.updateMatrixWorld(true);
@@ -58,19 +85,32 @@ function measure(url, scene) {
   scene.traverse((o) => {
     if (o.isSkinnedMesh) {
       o.computeBoundingBox();
-      tmp.copy(o.boundingBox).applyMatrix4(o.matrixWorld);
-      box.union(tmp);
+      if (isFiniteBox(o.boundingBox)) {
+        tmp.copy(o.boundingBox).applyMatrix4(o.matrixWorld);
+        if (isFiniteBox(tmp)) box.union(tmp);
+      } else if (o.geometry) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if (isFiniteBox(o.geometry.boundingBox)) {
+          tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+          if (isFiniteBox(tmp)) box.union(tmp);
+        }
+      }
     } else if (o.isMesh) {
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-      tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
-      box.union(tmp);
+      if (isFiniteBox(o.geometry.boundingBox)) {
+        tmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+        if (isFiniteBox(tmp)) box.union(tmp);
+      }
     }
   });
+  if (!isFiniteBox(box)) {
+    box.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+  }
   const size = new THREE.Vector3();
   box.getSize(size);
   const center = new THREE.Vector3();
   box.getCenter(center);
-  const meta = { height: size.y || 1, size, minY: box.min.y, center, box };
+  const meta = { height: Math.max(0.05, size.y || 1), size, minY: box.min.y, center, box };
   metaCache.set(url, meta);
   return meta;
 }

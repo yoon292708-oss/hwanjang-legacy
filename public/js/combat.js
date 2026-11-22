@@ -263,7 +263,7 @@ export class MonsterManager {
       }
       placeholder.add(inst.root);
       mob.inst = inst;
-      playAnim(inst, ['idle']);
+      playAnim(inst, ['idle', 'flying', 'chest_close']);
     } catch {
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(def.size * 0.7, def.size, def.size * 0.7),
@@ -338,7 +338,7 @@ export class MonsterManager {
             m.y = getTerrainY(zoneId, m.x, m.z);
             m.root.position.set(m.x, m.y, m.z);
             m.root.visible = true;
-            if (m.inst) playAnim(m.inst, ['idle']);
+            if (m.inst) playAnim(m.inst, ['idle', 'flying', 'chest_close']);
           }
         }
         continue;
@@ -400,9 +400,9 @@ export class MonsterManager {
             m.z += (sz / sd) * (m.spd * 0.65) * dt;
             m.y = getTerrainY(zoneId, m.x, m.z);
             m.root.position.set(m.x, m.y, m.z);
-            if (m.inst) playAnim(m.inst, ['walk', 'run']);
+            if (m.inst) playAnim(m.inst, ['walk', 'run', 'flying']);
           } else if (m.inst) {
-            playAnim(m.inst, ['idle']);
+            playAnim(m.inst, ['idle', 'flying', 'chest_close']);
           }
         }
       }

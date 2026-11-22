@@ -1,6 +1,8 @@
 // =============================================================
-//  data.js - 환장 래거시 게임 데이터 (11종 직업, 통합 사계절 오픈월드 + 던전, 강화, 칭호, 퀘스트)
+//  data.js - 환장 래거시 게임 데이터 (15종 직업, 숨겨진 전직관 5인, 10개 지역, 강화, 칭호, 퀘스트)
 // =============================================================
+
+export const SKILL_REQ_LEVELS = [1, 3, 7, 12];
 
 export const HERO_WEAPON_HIDE = [
   '1H_Sword', '2H_Sword', '1H_Sword_Offhand',
@@ -21,7 +23,8 @@ export const CLASSES = {
     skills: [
       { name: '질풍 검기', cd: 3.2, mult: 2.3, type: 'proj', color: 0x38bdf8, desc: '전방으로 날카로운 푸른 검기를 날립니다.' },
       { name: '검풍 난무', cd: 6.0, mult: 3.2, range: 5.5, type: 'aoe', color: 0x0ea5e9, desc: '주변 적을 회오리 검기로 연속 베어냅니다.' },
-      { name: '진·천공참', cd: 11.0, mult: 4.8, dash: 7.0, range: 6.5, type: 'dash_aoe', color: 0x7dd3fc, desc: '전방으로 쾌속 돌진하며 거대한 참격을 가합니다.' },
+      { name: '진·천공참', cd: 10.5, mult: 4.8, dash: 7.0, range: 6.5, type: 'dash_aoe', color: 0x7dd3fc, desc: '전방으로 쾌속 돌진하며 거대한 참격을 가합니다.' },
+      { name: '성검 엑스칼리버', cd: 15.0, mult: 7.2, range: 8.0, stun: 1.5, type: 'meteor', color: 0x38bdf8, desc: '하늘에서 거대한 빛의 성검을 떨어뜨려 적을 섬멸합니다.' },
     ],
   },
   warrior: {
@@ -33,8 +36,9 @@ export const CLASSES = {
     baseAtk: 22, baseHp: 210, speed: 0.42, moveSpd: 9.0, range: 4.2, critBonus: 0.1, isRanged: false,
     skills: [
       { name: '대지 분쇄', cd: 4.0, mult: 2.7, range: 5.2, stun: 1.4, type: 'aoe', color: 0xef4444, desc: '지면 강타로 주변 적을 기절시킵니다.' },
-      { name: '광폭의 함성', cd: 7.5, mult: 2.2, range: 5.0, healPct: 0.25, type: 'heal_aoe', color: 0xf97316, desc: '피해를 주며 체력을 25% 회복합니다.' },
-      { name: '기간틱 슬램', cd: 12.0, mult: 5.4, range: 7.0, stun: 2.0, type: 'aoe', color: 0xdc2626, desc: '거대한 도약 강타로 넓은 범위를 초토화합니다.' },
+      { name: '광폭의 함성', cd: 7.5, mult: 2.4, range: 5.2, healPct: 0.25, type: 'heal_aoe', color: 0xf97316, desc: '피해를 주며 체력을 25% 회복합니다.' },
+      { name: '기간틱 슬램', cd: 11.5, mult: 5.4, range: 7.0, stun: 2.0, type: 'aoe', color: 0xdc2626, desc: '거대한 도약 강타로 넓은 범위를 초토화합니다.' },
+      { name: '패왕의 도끼폭풍', cd: 16.0, mult: 7.8, dash: 7.5, range: 8.2, stun: 2.2, type: 'dash_aoe', color: 0xf87171, desc: '적진으로 맹돌진해 대지를 가르는 붉은 회오리를 일으킵니다.' },
     ],
   },
   fighter: {
@@ -48,6 +52,7 @@ export const CLASSES = {
       { name: '용권 파동', cd: 3.5, mult: 2.6, range: 4.8, stun: 1.6, type: 'aoe', color: 0xf97316, desc: '강력한 기공 충격파로 적을 기절시킵니다.' },
       { name: '금강 쇄격', cd: 6.2, mult: 3.7, dash: 7.5, range: 4.8, type: 'dash_aoe', color: 0xfbbf24, desc: '번개처럼 돌진해 연환 일격을 날립니다.' },
       { name: '패왕 연환격', cd: 10.5, mult: 5.6, range: 6.0, stun: 2.2, type: 'aoe', color: 0xfb923c, desc: '폭발적인 투기를 방출해 주변을 섬멸합니다.' },
+      { name: '극·용신승천격', cd: 15.0, mult: 8.0, range: 7.8, stun: 2.6, type: 'aoe', color: 0xf59e0b, desc: '황금 용의 투기를 폭발시켜 주변 모든 적을 기절·섬멸합니다.' },
     ],
   },
   magicknight: {
@@ -60,7 +65,8 @@ export const CLASSES = {
     skills: [
       { name: '빙염 검기', cd: 3.2, mult: 2.8, type: 'proj', color: 0x06b6d4, desc: '적들을 관통하는 빙염 마력 검기를 날립니다.' },
       { name: '아케인 노바', cd: 6.5, mult: 4.0, range: 6.8, type: 'aoe', color: 0x22d3ee, desc: '거대한 마력 폭발을 일으켜 광역 피해를 줍니다.' },
-      { name: '차원 붕괴참', cd: 11.5, mult: 6.0, dash: 8.0, range: 7.5, type: 'dash_aoe', color: 0x818cf8, desc: '공간을 베어 가르며 폭발적인 마력 참격을 가합니다.' },
+      { name: '차원 붕괴참', cd: 11.0, mult: 6.0, dash: 8.0, range: 7.5, type: 'dash_aoe', color: 0x818cf8, desc: '공간을 베어 가르며 폭발적인 마력 참격을 가합니다.' },
+      { name: '별빛 천뢰검', cd: 15.5, mult: 8.2, range: 8.5, type: 'meteor', color: 0x22d3ee, desc: '하늘에서 푸른 번개 마검을 쏟아부어 초토화합니다.' },
     ],
   },
   loner: {
@@ -74,6 +80,49 @@ export const CLASSES = {
       { name: '그림자 습격', cd: 3.2, mult: 2.9, dash: 7.0, range: 4.5, type: 'dash_aoe', color: 0x64748b, desc: '적의 사각으로 순식간에 파고들어 베어냅니다.' },
       { name: '고독한 일섬', cd: 5.8, mult: 3.9, range: 5.2, type: 'aoe', color: 0xe2e8f0, desc: '주변 모든 적에게 치명적 참격을 가합니다.' },
       { name: '무영 난무', cd: 10.5, mult: 5.8, dash: 8.5, range: 6.5, type: 'dash_aoe', color: 0x94a3b8, desc: '잔상을 남기며 연속 암살 일격을 퍼붓습니다.' },
+      { name: '절명·월식참', cd: 14.5, mult: 8.4, range: 7.2, stun: 1.5, type: 'aoe', color: 0xf8fafc, desc: '달빛의 그림자로 적의 급소를 한 번에 베어버립니다.' },
+    ],
+  },
+  lancer: {
+    id: 'lancer', name: '용기사', category: 'melee', icon: '🔱', tier: 'S티어 · 창술', unlockCost: 750,
+    color: 0x3b82f6, hex: '#60a5fa',
+    model: 'heroes/Knight.glb', weapon: 'items/Spear.glb', showParts: ['Spike_Shield'], tint: 0x93c5fd,
+    animAttack: '1H_Melee_Attack_Chop',
+    desc: '긴 용창의 압도적 사거리와 창공 돌진으로 전장을 꿰뚫는 드래곤 나이트.',
+    baseAtk: 26, baseHp: 185, speed: 0.31, moveSpd: 10.1, range: 5.2, critBonus: 0.16, isRanged: false,
+    skills: [
+      { name: '용아 관통', cd: 3.3, mult: 2.7, type: 'proj', color: 0x60a5fa, desc: '전방을 꿰뚫는 푸른 용창 기운을 발사합니다.' },
+      { name: '비룡 돌진', cd: 6.2, mult: 3.9, dash: 8.5, range: 5.8, type: 'dash_aoe', color: 0x3b82f6, desc: '먼 거리를 단숨에 꿰뚫고 돌진합니다.' },
+      { name: '선풍 창무', cd: 10.5, mult: 5.5, range: 7.2, stun: 1.4, type: 'aoe', color: 0x93c5fd, desc: '창을 거대하게 휘둘러 넓은 범위를 쓸어버립니다.' },
+      { name: '드래곤 다이브', cd: 15.5, mult: 8.5, range: 8.5, stun: 2.0, type: 'meteor', color: 0x2563eb, desc: '창공에서 푸른 용의 낙뢰와 함께 대지를 강타합니다.' },
+    ],
+  },
+  paladin: {
+    id: 'paladin', name: '성기사', category: 'melee', icon: '🛡️', tier: 'A티어 · 수호', unlockCost: 650,
+    color: 0xfbbf24, hex: '#fbbf24',
+    model: 'heroes/Knight.glb', weapon: 'items/Hammer_Double.glb', showParts: ['Badge_Shield'], tint: 0xfef08a,
+    animAttack: '2H_Melee_Attack_Chop',
+    desc: '거대한 성망치의 기절과 신성한 치유 오라를 겸비한 불굴의 수호기사.',
+    baseAtk: 23, baseHp: 235, speed: 0.37, moveSpd: 9.2, range: 4.3, critBonus: 0.12, isRanged: false,
+    skills: [
+      { name: '심판의 망치', cd: 3.6, mult: 2.7, range: 5.0, stun: 1.5, type: 'aoe', color: 0xfbbf24, desc: '빛나는 망치로 적을 내려쳐 기절시킵니다.' },
+      { name: '수호의 축복', cd: 6.5, mult: 2.8, range: 6.0, healPct: 0.35, type: 'heal_aoe', color: 0xfde047, desc: '신성 충격파를 일으키고 체력을 35% 회복합니다.' },
+      { name: '성광 돌격', cd: 11.0, mult: 5.2, dash: 7.5, range: 6.5, stun: 1.8, type: 'dash_aoe', color: 0xfacc15, desc: '황금빛 방패로 돌진하며 적진을 분쇄합니다.' },
+      { name: '신의 철퇴 강림', cd: 15.5, mult: 7.8, range: 8.5, healPct: 0.45, type: 'heal_aoe', color: 0xfef08a, desc: '대규모 빛의 폭발로 적을 심판하고 HP를 45% 회복합니다.' },
+    ],
+  },
+  samurai: {
+    id: 'samurai', name: '검성', category: 'melee', icon: '⛩️', tier: 'SS티어 · 초월', unlockCost: 1300,
+    color: 0xf43f5e, hex: '#fda4af',
+    model: 'heroes/Rogue.glb', weapon: 'items/Sword_Big.glb', tint: 0xfda4af, emissive: 0xbe123c,
+    animAttack: '2H_Melee_Attack_Spin',
+    desc: '빛의 속도로 거합 발도술을 펼치는 전설의 검사. 최상위 공격 속도와 치명타를 자랑합니다.',
+    baseAtk: 31, baseHp: 175, speed: 0.22, moveSpd: 11.2, range: 4.8, critBonus: 0.3, isRanged: false,
+    skills: [
+      { name: '발도·홍련섬', cd: 2.9, mult: 3.0, type: 'proj', color: 0xf43f5e, desc: '붉은 검풍을 전방으로 순식간에 날립니다.' },
+      { name: '일섬 난무', cd: 5.8, mult: 4.4, dash: 8.5, range: 6.2, type: 'dash_aoe', color: 0xfb7185, desc: '적 사이를 질주하며 순식간에 베어 가릅니다.' },
+      { name: '벚꽃 만개참', cd: 10.0, mult: 6.4, range: 7.5, stun: 1.6, type: 'aoe', color: 0xfda4af, desc: '사방에 붉은 검기를 흩뿌려 적들을 섬멸합니다.' },
+      { name: '오의·무쌍천상베기', cd: 15.0, mult: 9.2, range: 9.0, stun: 2.2, type: 'aoe', color: 0xe11d48, desc: '모든 것을 두 동강 내는 검성의 궁극 발도술입니다.' },
     ],
   },
   necromancer: {
@@ -87,6 +136,7 @@ export const CLASSES = {
       { name: '망자 소환', cd: 7.0, mult: 1.0, type: 'summon', color: 0xa855f7, desc: '해골 전사를 최대 4기 소환해 함께 싸웁니다.' },
       { name: '사신의 낫', cd: 5.0, mult: 3.5, range: 7.0, healPct: 0.18, type: 'heal_aoe', color: 0xc084fc, desc: '주변 영혼을 수확해 큰 피해를 주고 체력을 흡수합니다.' },
       { name: '언데드 군단 강림', cd: 12.0, mult: 5.0, range: 8.5, type: 'summon_aoe', color: 0x7e22ce, desc: '저주의 폭발과 함께 정예 해골을 일제 소환합니다.' },
+      { name: '죽음의 대재앙', cd: 16.0, mult: 8.2, range: 9.5, type: 'meteor', color: 0x9333ea, desc: '거대한 암흑 해골 유성을 소환해 전장을 초토화합니다.' },
     ],
   },
   warlock: {
@@ -99,7 +149,8 @@ export const CLASSES = {
     skills: [
       { name: '암흑 연쇄', cd: 3.0, mult: 2.7, type: 'proj', color: 0xec4899, desc: '고속 암흑 마력 구체를 발사합니다.' },
       { name: '메테오 폴', cd: 6.8, mult: 4.5, range: 7.5, type: 'meteor', color: 0xf43f5e, desc: '하늘에서 거대한 지옥 운석을 떨어뜨립니다.' },
-      { name: '심연의 블랙홀', cd: 12.5, mult: 6.4, range: 8.5, stun: 2.0, type: 'aoe', color: 0xbe185d, desc: '중력 붕괴를 일으켜 적을 묶고 초토화합니다.' },
+      { name: '심연의 블랙홀', cd: 12.0, mult: 6.4, range: 8.5, stun: 2.0, type: 'aoe', color: 0xbe185d, desc: '중력 붕괴를 일으켜 적을 묶고 초토화합니다.' },
+      { name: '아포칼립스 파멸', cd: 16.5, mult: 9.0, range: 9.5, type: 'barrage', color: 0xf43f5e, desc: '다섯 갈래의 파멸 탄환을 연속 폭발시킵니다.' },
     ],
   },
   mage: {
@@ -113,6 +164,21 @@ export const CLASSES = {
       { name: '파이어 볼트', cd: 3.0, mult: 2.5, type: 'proj', color: 0xfb923c, desc: '작열하는 화염 구체를 발사합니다.' },
       { name: '프로스트 노바', cd: 6.0, mult: 3.4, range: 6.5, stun: 1.8, type: 'aoe', color: 0x38bdf8, desc: '빙결 파동으로 주변 적을 얼려버립니다.' },
       { name: '아이스 스톰', cd: 11.0, mult: 5.3, range: 8.0, type: 'meteor', color: 0x60a5fa, desc: '거대한 빙결 폭풍을 쏟아붓습니다.' },
+      { name: '엘레멘탈 폭격', cd: 15.0, mult: 7.8, range: 8.5, type: 'barrage', color: 0x38bdf8, desc: '다섯 갈래의 원소 마법 탄환을 일제 발사합니다.' },
+    ],
+  },
+  ranger: {
+    id: 'ranger', name: '신궁수', category: 'magic', icon: '🏹', tier: 'A티어 · 원거리', unlockCost: 400,
+    color: 0x22c55e, hex: '#4ade80',
+    model: 'heroes/Rogue_Hooded.glb', weapon: 'items/Bow_Golden.glb', tint: 0x86efac,
+    animAttack: '1H_Ranged_Shoot',
+    desc: '황금 활로 먼 거리에서 적을 꿰뚫는 날렵한 엘프 궁수.',
+    baseAtk: 25, baseHp: 145, speed: 0.27, moveSpd: 10.6, range: 14.5, critBonus: 0.24, isRanged: true,
+    skills: [
+      { name: '관통 화살', cd: 2.8, mult: 2.6, type: 'proj', color: 0x4ade80, desc: '빠른 황금 화살 2발을 연속 발사합니다.' },
+      { name: '멀티 애로우', cd: 5.6, mult: 4.0, type: 'barrage', color: 0x22c55e, desc: '부채꼴로 5발의 바람 화살을 일제히 쏩니다.' },
+      { name: '백스텝 샷', cd: 9.5, mult: 4.6, range: 6.0, stun: 1.5, type: 'aoe', color: 0x86efac, desc: '주변에 폭발 화살비를 내려 적을 묶습니다.' },
+      { name: '별빛 화살 폭풍', cd: 14.5, mult: 8.0, range: 8.5, type: 'meteor', color: 0xfacc15, desc: '하늘에서 황금빛 화살 폭풍을 떨어뜨립니다.' },
     ],
   },
   priest: {
@@ -126,6 +192,7 @@ export const CLASSES = {
       { name: '심판의 창', cd: 3.6, mult: 2.5, type: 'proj', color: 0xfacc15, desc: '성스러운 빛의 창을 투척합니다.' },
       { name: '천상의 빛', cd: 5.5, mult: 2.3, range: 6.5, healPct: 0.42, type: 'heal_aoe', color: 0xfde047, desc: '적에게 피해를 주고 HP를 42% 회복합니다.' },
       { name: '성역 전개', cd: 11.0, mult: 4.2, range: 8.0, healPct: 0.6, type: 'heal_aoe', color: 0xfef08a, desc: '거대한 성역을 펼쳐 체력을 대폭 회복하고 심판합니다.' },
+      { name: '아크엔젤 심판', cd: 15.5, mult: 7.4, range: 8.5, healPct: 0.75, type: 'heal_aoe', color: 0xfef9c3, desc: '절대적인 성광으로 적을 섬멸하고 HP를 75% 회복합니다.' },
     ],
   },
   angel: {
@@ -139,6 +206,7 @@ export const CLASSES = {
       { name: '천벌의 검기', cd: 3.3, mult: 2.8, type: 'proj', color: 0xfde047, desc: '성스러운 황금 검기를 발사합니다.' },
       { name: '세라핌의 축복', cd: 6.5, mult: 3.6, range: 7.0, healPct: 0.3, type: 'heal_aoe', color: 0xfbbf24, desc: '신성 폭발로 적을 심판하고 체력을 30% 회복합니다.' },
       { name: '천상의 심판', cd: 11.5, mult: 6.0, range: 8.5, type: 'meteor', color: 0xfef08a, desc: '하늘에서 성스러운 빛의 기둥을 내리꽂습니다.' },
+      { name: '천국 문 개방', cd: 16.0, mult: 8.8, range: 9.0, type: 'barrage', color: 0xfde047, desc: '하늘의 빛줄기 5갈래를 전방으로 쏟아붓습니다.' },
     ],
   },
   pirate: {
@@ -153,15 +221,73 @@ export const CLASSES = {
       { name: '화약탄 사격', cd: 3.5, mult: 2.3, type: 'proj', color: 0x10b981, desc: '폭발하는 화약탄을 발사합니다.' },
       { name: '대포 일제포격', cd: 7.0, mult: 3.4, range: 6.8, type: 'meteor', color: 0x34d399, desc: '하늘에서 함포 포탄을 떨어뜨립니다.' },
       { name: '해적왕의 약탈', cd: 11.0, mult: 4.6, range: 7.0, type: 'aoe', color: 0xfbbf24, desc: '주변을 쓸어버리며 추가 전리품 감각을 깨웁니다.' },
+      { name: '크라켄 포격 함대', cd: 15.0, mult: 7.2, range: 8.5, type: 'barrage', color: 0x10b981, desc: '다섯 발의 마법 함포탄을 일제 사격합니다.' },
     ],
   },
 };
 
 export const CLASS_ORDER = [
-  'swordman', 'warrior', 'fighter', 'magicknight', 'loner',
-  'necromancer', 'warlock', 'mage',
+  'swordman', 'warrior', 'fighter', 'magicknight', 'loner', 'lancer', 'paladin', 'samurai',
+  'necromancer', 'warlock', 'mage', 'ranger',
   'priest', 'angel', 'pirate',
 ];
+
+export const TRAINERS = {
+  master_knight: {
+    id: 'master_knight',
+    name: '⚔️ 기사단장 아서',
+    model: 'npc_m/King.glb',
+    x: -36, z: 74, rotY: 0.7,
+    classes: ['swordman', 'lancer', 'paladin'],
+    regionName: '🌸 봄: 시작의 꽃밭',
+    hint: '🌸 봄의 꽃밭 서쪽 숲길, 울창한 나무 그늘 뒤편 어딘가',
+    greeting: '이 먼 숲속까지 나를 찾아내다니 훌륭하군! 기사단의 창술과 성기사의 방패를 배워 보겠나?',
+  },
+  master_brawler: {
+    id: 'master_brawler',
+    name: '🥊 투기장 교관 카인',
+    model: 'npc_m/Adventurer.glb',
+    x: 34, z: 214, rotY: -0.9,
+    classes: ['warrior', 'fighter', 'samurai'],
+    regionName: '🌾 바람의 대초원',
+    hint: '🌾 남쪽 외곽 대초원의 풍차와 농가 건물 뒤편 어딘가',
+    greeting: '크하하! 숨은 훈련장까지 찾아왔구나! 진짜 전사와 무투가, 검성의 오의를 전수해 주지!',
+  },
+  master_rogue: {
+    id: 'master_rogue',
+    name: '🏹 그림자 선장 로빈',
+    model: 'npc_m/Casual2.glb',
+    x: 162, z: 229, rotY: -2.2,
+    classes: ['pirate', 'loner', 'ranger'],
+    regionName: '🌊 에메랄드 바다',
+    hint: '🌊 남동쪽 에메랄드 바다, 남서쪽 산호 모래섬 야자수 아래',
+    greeting: '어이, 바다를 건너 내 은신처까지 찾아온 녀석은 네가 처음이야! 활과 암살, 해적의 기술을 알려주마!',
+  },
+  master_holy: {
+    id: 'master_holy',
+    name: '🪽 천공의 성녀 세레나',
+    model: 'npc_f/Formal.glb',
+    x: -102, z: -56, rotY: 0.4,
+    classes: ['priest', 'angel', 'magicknight'],
+    regionName: '🍁 가을: 단풍의 협곡',
+    hint: '🍁 서쪽 가을 단풍 협곡의 북쪽 언덕 너머 어딘가',
+    greeting: '따스한 빛을 따라 여기까지 오셨군요. 성직자와 천사, 마검사의 신성한 힘을 열어드리겠어요.',
+  },
+  master_arcane: {
+    id: 'master_arcane',
+    name: '🔮 심연의 마도사 베라',
+    model: 'npc_f/Medieval.glb',
+    x: -222, z: -34, rotY: 1.1,
+    classes: ['mage', 'warlock', 'necromancer'],
+    regionName: '🏛️ 고대 잊혀진 유적지',
+    hint: '🏛️ 서쪽 외곽 고대 유적지의 북쪽 거대 석탑 뒤편 어딘가',
+    greeting: '유적의 깊은 그림자 속까지 발걸음하다니... 금기의 흑마법과 사령술을 다룰 자격이 있겠군.',
+  },
+};
+
+export function getTrainerForClass(clsId) {
+  return Object.values(TRAINERS).find((t) => t.classes.includes(clsId)) || null;
+}
 
 export const EQUIP_GRADES = [
   { grade: 0, name: '일반', mult: 1.0, costGold: 0, costStone: 0, color: '#94a3b8' },
@@ -344,12 +470,30 @@ export const TITLES = [
 ];
 
 export const QUESTS = [
-  { id: 'q1', title: '봄의 시작', desc: '🌸 꽃잎 슬라임 4마리 처치', targetId: 'spring_slime', count: 4, gold: 180, stone: 3, crystal: 5, exp: 120 },
-  { id: 'q2', title: '봄의 수호자 토벌', desc: '🌸 [보스] 스테고르 1회 처치', targetId: 'spring_guardian', count: 1, gold: 450, stone: 6, crystal: 12, exp: 420 },
-  { id: 'q3', title: '작열의 해변 정화', desc: '☀️ 모래 집게 5마리 처치', targetId: 'sand_crab', count: 5, gold: 750, stone: 8, crystal: 15, exp: 900 },
-  { id: 'q4', title: '여름의 거신', desc: '☀️ [보스] 작열의 거신 아파토 토벌', targetId: 'summer_boss', count: 1, gold: 1400, stone: 12, crystal: 25, exp: 1800 },
-  { id: 'q5', title: '단풍 협곡의 저주', desc: '🍁 해골 군주 바르곤 1회 토벌', targetId: 'autumn_boss', count: 1, gold: 2800, stone: 20, crystal: 45, exp: 3800 },
-  { id: 'q6', title: '최종: 월드 드래곤', desc: '❄️ 고대 월드 드래곤 티라노스 토벌', targetId: 'world_dragon', count: 1, gold: 8000, stone: 45, crystal: 120, exp: 9500 },
+  { id: 'q1', kind: 'kill', title: '봄의 시작', desc: '🌸 꽃잎 슬라임 4마리 처치', targetId: 'spring_slime', count: 4, gold: 200, stone: 3, crystal: 5, exp: 140 },
+  { id: 'q2', kind: 'kill', title: '꽃밭의 날개', desc: '🐝 꽃밭 꿀벌 4마리 처치', targetId: 'spring_bee', count: 4, gold: 280, stone: 4, crystal: 8, exp: 210 },
+  { id: 'q3', kind: 'trainer', title: '숨겨진 스승 찾기', desc: '🧭 맵 어딘가에 숨은 전직관 1명 발견', targetId: 'trainer', count: 1, gold: 400, stone: 5, crystal: 10, exp: 280 },
+  { id: 'q4', kind: 'level', title: '2번 기술 각성', desc: '⬆️ 캐릭터 Lv.3 달성하기', targetId: 'level', count: 3, gold: 350, stone: 5, crystal: 10, exp: 250 },
+  { id: 'q5', kind: 'kill', title: '봄의 수호자 토벌', desc: '🌸 [보스] 스테고르 1회 처치', targetId: 'spring_guardian', count: 1, gold: 600, stone: 8, crystal: 15, exp: 520 },
+  { id: 'q6', kind: 'kill', title: '대초원의 알파카', desc: '🌾 황금 알파카 5마리 처치', targetId: 'meadow_alpaca', count: 5, gold: 700, stone: 8, crystal: 15, exp: 680 },
+  { id: 'q7', kind: 'kill', title: '수호왕 엘크사우르', desc: '🌾 [보스] 엘크사우르 1회 처치', targetId: 'meadow_boss', count: 1, gold: 1100, stone: 10, crystal: 20, exp: 1100 },
+  { id: 'q8', kind: 'kill', title: '작열의 해변 정화', desc: '☀️ 모래 집게 5마리 처치', targetId: 'sand_crab', count: 5, gold: 950, stone: 10, crystal: 20, exp: 950 },
+  { id: 'q9', kind: 'kill', title: '여름의 거신', desc: '☀️ [보스] 작열의 거신 아파토 토벌', targetId: 'summer_boss', count: 1, gold: 1600, stone: 14, crystal: 28, exp: 1900 },
+  { id: 'q10', kind: 'kill', title: '심해의 거신', desc: '🌊 [보스] 레비아탄 1회 토벌', targetId: 'ocean_boss', count: 1, gold: 2200, stone: 18, crystal: 35, exp: 2700 },
+  { id: 'q11', kind: 'kill', title: '사막의 폭군', desc: '🏜️ [보스] 스핑크스 렉스 토벌', targetId: 'desert_boss', count: 1, gold: 3200, stone: 22, crystal: 45, exp: 4200 },
+  { id: 'q12', kind: 'kill', title: '단풍 협곡의 저주', desc: '🍁 해골 군주 바르곤 1회 토벌', targetId: 'autumn_boss', count: 1, gold: 3600, stone: 25, crystal: 50, exp: 4500 },
+  { id: 'q13', kind: 'kill', title: '고대 유적의 수호자', desc: '🏛️ [보스] 고대 유적의 수호거신 토벌', targetId: 'ruins_boss', count: 1, gold: 5200, stone: 32, crystal: 70, exp: 6500 },
+  { id: 'q14', kind: 'kill', title: '최종: 월드 드래곤', desc: '❄️ 고대 월드 드래곤 티라노스 토벌', targetId: 'world_dragon', count: 1, gold: 10000, stone: 50, crystal: 150, exp: 12000 },
+];
+
+export const SIDE_QUESTS = [
+  { id: 'sq_bee', kind: 'kill', title: '🐝 꿀벌 대소탕', desc: '꽃밭 꿀벌 8마리 처치', targetId: 'spring_bee', count: 8, gold: 420, stone: 5, crystal: 12, exp: 320 },
+  { id: 'sq_lv7', kind: 'level', title: '⚡ 3번 기술 해금', desc: '캐릭터 Lv.7 달성하기', targetId: 'level', count: 7, gold: 550, stone: 6, crystal: 15, exp: 400 },
+  { id: 'sq_lv12', kind: 'level', title: '🔥 4번 필살기 각성', desc: '캐릭터 Lv.12 달성하기', targetId: 'level', count: 12, gold: 1100, stone: 10, crystal: 25, exp: 800 },
+  { id: 'sq_tr3', kind: 'trainer', title: '🧭 숨은 스승 추적자', desc: '숨겨진 전직관 3명 발견하기', targetId: 'trainer', count: 3, gold: 1200, stone: 12, crystal: 25, exp: 900 },
+  { id: 'sq_tr5', kind: 'trainer', title: '👑 모든 전직관 제패', desc: '숨겨진 전직관 5명 모두 발견하기', targetId: 'trainer', count: 5, gold: 3000, stone: 24, crystal: 60, exp: 2400 },
+  { id: 'sq_wasp', kind: 'kill', title: '🐝 작열 말벌 소탕', desc: '작열 말벌 6마리 처치', targetId: 'sand_wasp', count: 6, gold: 1400, stone: 12, crystal: 28, exp: 1300 },
+  { id: 'sq_spider', kind: 'kill', title: '🦂 사막 전갈거미 사냥', desc: '황금 전갈거미 6마리 처치', targetId: 'desert_spider', count: 6, gold: 2600, stone: 18, crystal: 40, exp: 2500 },
 ];
 
 export const COUPONS = {

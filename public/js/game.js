@@ -4,7 +4,10 @@
 import * as THREE from 'three';
 import { instance, playAnim, attachWeapon } from './assets.js';
 import { SFX } from './audio.js';
-import { CLASSES, CLASS_ORDER, HERO_WEAPON_HIDE, EQUIP_GRADES, ZONES, REGIONS, getRegionAt, TITLES, QUESTS, COUPONS } from './data.js';
+import {
+  CLASSES, CLASS_ORDER, HERO_WEAPON_HIDE, EQUIP_GRADES, ZONES, REGIONS,
+  getRegionAt, TITLES, QUESTS, SIDE_QUESTS, COUPONS, SKILL_REQ_LEVELS, TRAINERS, getTrainerForClass,
+} from './data.js';
 import { WorldBuilder, getTerrainY, resolveWorldCollisions } from './world.js';
 import { VFXManager, MonsterManager } from './combat.js';
 
@@ -61,6 +64,9 @@ const state = {
   abyssSelectedFloor: 1,
   pvpWins: 0,
   usedCoupons: [],
+  foundTrainers: [],
+  killCounts: {},
+  claimedSideQuests: [],
 };
 
 function expNeeded(lv) {
@@ -138,7 +144,7 @@ const player = {
   hp: 150, maxHp: 150,
   dead: false, respawnTimer: 0,
   atkCd: 0,
-  cds: [0, 0, 0],
+  cds: [0, 0, 0, 0],
   dashCd: 0, dashTimer: 0, invulnTimer: 0,
   guardActive: false, guardTimer: 0, parryWindow: 0,
   healCd: 0,
@@ -507,6 +513,68 @@ function checkWorldEventSpawn() {
 }
 
 // ---------------- Combat Actions ----------------
+function grantLevelExpOnly(exp) {
+  if (!exp || state.level >= 99) return;
+  state.exp += exp;
+  while (state.level < 99 && state.exp >= expNeeded(state.level)) {
+    state.exp -= expNeeded(state.level);
+    state.level++;
+    const stats = calcStats();
+    player.maxHp = stats.maxHp;
+    player.hp = stats.maxHp;
+    SFX.levelUp();
+    vfx.ringBurst(player.x, player.y, player.z, 6.0, 0xfacc15);
+    showToast(`🎉 LEVEL UP! Lv.${state.level} 달성!`);
+    const c = currentClass();
+    SKILL_REQ_LEVELS.forEach((reqLv, idx) => {
+      if (state.level === reqLv && idx > 0 && c.skills[idx]) {
+        showToast(`🔓 ${idx + 1}번 기술 [${c.skills[idx].name}] 사용 가능!`);
+      }
+    });
+  }
+}
+
+function getQuestProgress(q, isMain = false) {
+  if (!q) return 0;
+  if (q.kind === 'level') return state.level;
+  if (q.kind === 'trainer') return (state.foundTrainers || []).length;
+  return isMain ? (state.questProg || 0) : ((state.killCounts || {})[q.targetId] || 0);
+}
+
+function checkMainQuestProgress() {
+  let completedAny = false;
+  while (state.questIdx < QUESTS.length) {
+    const q = QUESTS[state.questIdx];
+    const prog = getQuestProgress(q, true);
+    if (prog < q.count) break;
+    state.gold += q.gold;
+    state.stone += q.stone;
+    state.crystal += q.crystal;
+    state.questIdx++;
+    state.questProg = 0;
+    completedAny = true;
+    showToast(`📜 퀘스트 완료 [${q.title}]! +${q.gold}G +🔮${q.stone} +💎${q.crystal}`);
+    grantLevelExpOnly(q.exp);
+  }
+  if (completedAny) { updateHUD(); saveGame(); }
+}
+
+function discoverTrainer(trainerId) {
+  const tr = TRAINERS[trainerId];
+  if (!tr) return false;
+  if (!Array.isArray(state.foundTrainers)) state.foundTrainers = [];
+  if (state.foundTrainers.includes(trainerId)) return false;
+  state.foundTrainers.push(trainerId);
+  state.gold += 250;
+  SFX.levelUp();
+  vfx.ringBurst(tr.x, getTerrainY('world', tr.x, tr.z), tr.z, 4.5, 0xfacc15);
+  showToast(`🧭 숨겨진 전직관 [${tr.name}] 발견! (+250G)`);
+  checkMainQuestProgress();
+  updateHUD();
+  saveGame();
+  return true;
+}
+
 function grantExpAndLoot(exp, gold, stone, crystal, mobId) {
   const c = currentClass();
   const partyExpMult = myParty && myParty.members.length > 1 ? 1.2 : 1.0;
@@ -517,39 +585,19 @@ function grantExpAndLoot(exp, gold, stone, crystal, mobId) {
   state.stone += stone;
   state.crystal += crystal;
 
-  if (state.level < 99) {
-    state.exp += finalExp;
-    while (state.level < 99 && state.exp >= expNeeded(state.level)) {
-      state.exp -= expNeeded(state.level);
-      state.level++;
-      const stats = calcStats();
-      player.maxHp = stats.maxHp;
-      player.hp = stats.maxHp;
-      SFX.levelUp();
-      vfx.ringBurst(player.x, player.y, player.z, 6.0, 0xfacc15);
-      showToast(`🎉 LEVEL UP! Lv.${state.level} 달성!`);
-    }
-  }
+  grantLevelExpOnly(finalExp);
 
-  // Quest Progress
-  const q = QUESTS[state.questIdx];
-  if (q && mobId === q.targetId) {
-    state.questProg++;
-    if (state.questProg >= q.count) {
-      state.gold += q.gold;
-      state.stone += q.stone;
-      state.crystal += q.crystal;
-      state.questIdx++;
-      state.questProg = 0;
-      showToast(`📜 퀘스트 완료 [${q.title}]! +${q.gold}G +🔮${q.stone} +💎${q.crystal}`);
-      grantExpAndLoot(q.exp, 0, 0, 0, '__quest__');
-    }
-  }
-
-  // Daily Quest
   if (mobId && !mobId.startsWith('__')) {
+    if (!state.killCounts || typeof state.killCounts !== 'object') state.killCounts = {};
+    state.killCounts[mobId] = (state.killCounts[mobId] || 0) + 1;
     state.dailyKills = Math.min(10, (state.dailyKills || 0) + 1);
   }
+
+  const q = QUESTS[state.questIdx];
+  if (q && (q.kind || 'kill') === 'kill' && mobId === q.targetId) {
+    state.questProg++;
+  }
+  checkMainQuestProgress();
   updateHUD();
 }
 
@@ -693,6 +741,11 @@ function doSkill(idx) {
   if (player.dead) return;
   const c = currentClass();
   const sk = c.skills[idx];
+  const reqLv = SKILL_REQ_LEVELS[idx] || 1;
+  if (state.level < reqLv) {
+    showToast(`🔒 [${sk ? sk.name : `${idx + 1}번 기술`}]은(는) Lv.${reqLv}부터 사용할 수 있습니다! (현재 Lv.${state.level})`);
+    return;
+  }
   if (!sk || player.cds[idx] > 0) return;
 
   player.cds[idx] = sk.cd;
@@ -719,6 +772,17 @@ function doSkill(idx) {
       });
     }
     hitPvpTargets(player.x + fx * 6, player.z + fz * 6, 6.5, Math.floor(dmg));
+  } else if (sk.type === 'barrage') {
+    for (let a = -2; a <= 2; a++) {
+      const ang = player.ry + a * 0.17;
+      vfx.spawnProjectile({
+        x: player.x, y: player.y, z: player.z,
+        vx: Math.sin(ang) * 30, vz: Math.cos(ang) * 30,
+        radius: 0.55, color: skColor, dur: 1.35, pierce: true,
+        onHit: (m) => damageMob(m, dmg * 0.45, isCrit, sk.stun || 0),
+      });
+    }
+    hitPvpTargets(player.x + fx * 7, player.z + fz * 7, 8.0, Math.floor(dmg));
   } else if (sk.type === 'dash_aoe') {
     const dist = sk.dash || 7.0;
     const rad = ZONES[player.zone].radius - 2;
@@ -870,7 +934,8 @@ function doInteract() {
     clearZonePlates();
     enterZone(inter.item.to);
   } else if (inter.type === 'npc') {
-    openModalByAction(inter.item.action);
+    if (inter.item.trainerId) discoverTrainer(inter.item.trainerId);
+    openModalByAction(inter.item.action, inter.item.trainerId || null);
   }
 }
 
@@ -885,18 +950,93 @@ function closeModal() {
 $('btn-modal-close').onclick = closeModal;
 $('modal-backdrop').onclick = (e) => { if (e.target === $('modal-backdrop')) closeModal(); };
 
-function openModalByAction(act) {
-  if (act === 'openClass') openClassModal();
+function openModalByAction(act, trainerId = null) {
+  if (act === 'openClass') openClassModal('all', trainerId);
+  else if (act === 'openQuest') openQuestModal();
   else if (act === 'openUpgrade') openUpgradeModal();
   else if (act === 'openDungeon') openDungeonModal();
   else if (act === 'openMarket') openMarketModal();
 }
 
-function openClassModal(filterCat = 'all') {
+function openQuestModal() {
+  const mq = QUESTS[state.questIdx];
+  const mqProg = mq ? Math.min(getQuestProgress(mq, true), mq.count) : 0;
+  const mainHtml = mq ? `
+    <div class="upgrade-box" style="border-color:rgba(56,189,248,0.45)">
+      <h3 style="margin:0 0 6px;color:#38bdf8">📜 진행 중인 메인 퀘스트 (${state.questIdx + 1}/${QUESTS.length})</h3>
+      <div style="font-size:15px;font-weight:800;margin-bottom:4px">${mq.title}</div>
+      <div class="item-desc">${mq.desc} — <b>${mqProg} / ${mq.count}</b></div>
+      <div class="item-desc" style="color:#fde047;margin-top:4px">보상: 🪙 ${mq.gold}G · 🔮 ${mq.stone} · 💎 ${mq.crystal} · ⭐ EXP ${mq.exp}</div>
+    </div>
+  ` : `<div class="upgrade-box"><h3 style="margin:0;color:#4ade80">🎉 모든 메인 퀘스트 완료!</h3></div>`;
+
+  const sideRows = SIDE_QUESTS.map((sq) => {
+    const done = (state.claimedSideQuests || []).includes(sq.id);
+    const prog = Math.min(getQuestProgress(sq, false), sq.count);
+    const ready = !done && prog >= sq.count;
+    return `
+      <div class="list-row">
+        <div>
+          <div style="font-weight:800">${sq.title} <span style="font-size:12px;color:#94a3b8">(${prog}/${sq.count})</span></div>
+          <div class="item-desc">${sq.desc} · 보상: 🪙${sq.gold}G · 🔮${sq.stone} · 💎${sq.crystal}</div>
+        </div>
+        ${done
+          ? `<span class="tier-tag" style="color:#4ade80">완료 ✓</span>`
+          : ready
+            ? `<button class="btn accent" data-claim-sq="${sq.id}">🎁 보상 수령</button>`
+            : `<span class="tier-tag">진행 중</span>`}
+      </div>
+    `;
+  }).join('');
+
+  const hintsHtml = Object.values(TRAINERS).map((tr) => {
+    const found = (state.foundTrainers || []).includes(tr.id);
+    const clsNames = tr.classes.map((cid) => `${CLASSES[cid]?.icon || ''}${CLASSES[cid]?.name || cid}`).join(', ');
+    return `
+      <div class="list-row">
+        <div>
+          <div style="font-weight:800;color:${found ? '#4ade80' : '#fde047'}">${found ? `✅ ${tr.name} (발견됨!)` : `❓ 숨겨진 전직관 (${tr.regionName})`}</div>
+          <div class="item-desc">담당 직업: ${clsNames}</div>
+          <div class="item-desc" style="color:#cbd5e1">📍 힌트: ${found ? `좌표 (${tr.x}, ${tr.z}) · ${tr.hint}` : tr.hint}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  openModal('📜 퀘스트 게시판 & 숨겨진 전직관 소문', `${mainHtml}<h3 style="margin:14px 0 8px">🗺️ 탐험 · 사냥 서브 퀘스트</h3>${sideRows}<h3 style="margin:16px 0 8px">🧭 숨겨진 전직관 소문 (${(state.foundTrainers || []).length}/${Object.keys(TRAINERS).length})</h3>${hintsHtml}`);
+
+  $('modal-body').querySelectorAll('[data-claim-sq]').forEach((b) => {
+    b.onclick = () => {
+      const sq = SIDE_QUESTS.find((x) => x.id === b.dataset.claimSq);
+      if (!sq) return;
+      if (!Array.isArray(state.claimedSideQuests)) state.claimedSideQuests = [];
+      if (state.claimedSideQuests.includes(sq.id)) return;
+      if (getQuestProgress(sq, false) < sq.count) return;
+      state.claimedSideQuests.push(sq.id);
+      state.gold += sq.gold;
+      state.stone += sq.stone;
+      state.crystal += sq.crystal;
+      grantLevelExpOnly(sq.exp);
+      SFX.levelUp();
+      showToast(`🎁 서브 퀘스트 [${sq.title}] 보상 수령!`);
+      updateHUD();
+      saveGame();
+      openQuestModal();
+    };
+  });
+}
+
+function openClassModal(filterCat = 'all', trainerId = null) {
   if (typeof filterCat !== 'string') filterCat = 'all';
   const cur = currentClass();
   const statsNow = calcStats();
-  const list = CLASS_ORDER.filter((id) => filterCat === 'all' || CLASSES[id].category === filterCat);
+  const activeTrainer = trainerId ? TRAINERS[trainerId] : null;
+  let list = CLASS_ORDER;
+  if (activeTrainer) {
+    list = CLASS_ORDER.filter((id) => activeTrainer.classes.includes(id));
+  } else if (filterCat !== 'all') {
+    list = CLASS_ORDER.filter((id) => CLASSES[id].category === filterCat);
+  }
 
   const cards = list.map((id) => {
     const c = CLASSES[id];
@@ -904,11 +1044,18 @@ function openClassModal(filterCat = 'all') {
     const active = state.cls === id;
     const tierCls = c.tier.startsWith('S') ? 's' : c.tier.startsWith('A') ? 'a' : '';
     const canBuy = state.gold >= c.unlockCost;
-    const skHtml = c.skills.map((s, i) => `<div class="skill-mini"><b>[${i + 1}] ${s.name}</b> (${s.cd}s) · ${s.desc}</div>`).join('');
+    const tr = getTrainerForClass(id);
+    const canUnlockHere = !!(activeTrainer && activeTrainer.classes.includes(id));
+    const skHtml = c.skills.map((s, i) => {
+      const reqLv = SKILL_REQ_LEVELS[i] || 1;
+      const lvTag = reqLv > 1 ? ` <span style="color:#fbbf24">(Lv.${reqLv})</span>` : '';
+      return `<div class="skill-mini"><b>[${i + 1}] ${s.name}</b>${lvTag} (${s.cd}s) · ${s.desc}</div>`;
+    }).join('');
     let btnHtml = '';
     if (active) btnHtml = `<button class="btn sec" disabled>✅ 현재 장착 중</button>`;
     else if (unlocked) btnHtml = `<button class="btn primary" data-switch-cls="${id}">🔄 이 직업으로 전환</button>`;
-    else btnHtml = `<button class="btn ${canBuy ? 'accent' : 'sec'}" data-unlock-cls="${id}">🔓 해금하기 (🪙 ${c.unlockCost.toLocaleString()}G)</button>`;
+    else if (canUnlockHere) btnHtml = `<button class="btn ${canBuy ? 'accent' : 'sec'}" data-unlock-cls="${id}">🔓 해금하기 (🪙 ${c.unlockCost.toLocaleString()}G)</button>`;
+    else btnHtml = `<button class="btn sec" data-hint-cls="${id}">🔒 ${tr ? tr.name : '전직관'} 찾아가기</button>`;
 
     return `
       <div class="cls-card ${active ? 'active' : ''}" style="--cls-col:${c.hex}">
@@ -917,6 +1064,7 @@ function openClassModal(filterCat = 'all') {
           <span class="tier-tag ${tierCls}">${c.tier}</span>
         </div>
         <div class="item-desc">${c.desc}</div>
+        ${tr ? `<div><span class="trainer-badge">🧭 담당: ${tr.name}</span></div>` : ''}
         <div class="stat-pills">
           <span class="stat-pill">⚔️ 공격 ${c.baseAtk}</span>
           <span class="stat-pill">❤️ 체력 ${c.baseHp}</span>
@@ -928,6 +1076,26 @@ function openClassModal(filterCat = 'all') {
       </div>
     `;
   }).join('');
+
+  const trainerHeader = activeTrainer
+    ? `<div class="upgrade-box" style="border-color:rgba(250,204,21,0.45);margin-bottom:12px">
+         <div style="font-weight:800;color:#fde047;margin-bottom:4px">${activeTrainer.name} (${activeTrainer.regionName})</div>
+         <div class="item-desc" style="color:#e2e8f0">"${activeTrainer.greeting}"</div>
+         <button id="btn-show-all-dex" class="mini-btn" style="margin-top:8px">📖 전체 15종 전직 도감 보기</button>
+       </div>`
+    : `<div class="upgrade-box" style="margin-bottom:12px">
+         <div style="font-weight:800;color:#fde047;margin-bottom:4px">🧭 숨겨진 전직관 발견: ${(state.foundTrainers || []).length} / ${Object.keys(TRAINERS).length}명</div>
+         <div class="item-desc">신규 직업 해금은 <b>맵 어딘가에 숨어있는 해당 전직관을 직접 찾아 대화([E])</b>해야 가능합니다! (힌트는 📜 퀘스트 [L] 또는 아래 🔒 버튼 클릭!)</div>
+       </div>`;
+
+  const tabsHtml = activeTrainer ? '' : `
+    <div class="filter-tabs">
+      <button class="filter-tab ${filterCat === 'all' ? 'active' : ''}" data-cls-tab="all">전체 (${CLASS_ORDER.length})</button>
+      <button class="filter-tab ${filterCat === 'melee' ? 'active' : ''}" data-cls-tab="melee">⚔️ 근접·전투</button>
+      <button class="filter-tab ${filterCat === 'magic' ? 'active' : ''}" data-cls-tab="magic">🔮 마법·원거리</button>
+      <button class="filter-tab ${filterCat === 'support' ? 'active' : ''}" data-cls-tab="support">✨ 지원·특수</button>
+    </div>
+  `;
 
   const banner = `
     <div class="class-hero-banner">
@@ -944,18 +1112,23 @@ function openClassModal(filterCat = 'all') {
       </div>
       <div style="font-size:14px;font-weight:800;color:#facc15">보유 골드: 🪙 ${state.gold.toLocaleString()}G</div>
     </div>
-    <div class="filter-tabs">
-      <button class="filter-tab ${filterCat === 'all' ? 'active' : ''}" data-cls-tab="all">전체 (11)</button>
-      <button class="filter-tab ${filterCat === 'melee' ? 'active' : ''}" data-cls-tab="melee">⚔️ 근접·전투</button>
-      <button class="filter-tab ${filterCat === 'magic' ? 'active' : ''}" data-cls-tab="magic">🔮 마법·사령</button>
-      <button class="filter-tab ${filterCat === 'support' ? 'active' : ''}" data-cls-tab="support">✨ 지원·특수</button>
-    </div>
+    ${trainerHeader}
+    ${tabsHtml}
   `;
 
-  openModal('⚔️ 전직 교관 아서 — 11종 전직 센터', `${banner}<div class="card-grid">${cards}</div>`);
+  openModal(activeTrainer ? `${activeTrainer.name} — 전직 수련장` : `⚔️ 전직 도감 (${CLASS_ORDER.length}종) — 숨겨진 스승 찾기`, `${banner}<div class="card-grid">${cards}</div>`);
+
+  const showAllBtn = $('btn-show-all-dex');
+  if (showAllBtn) showAllBtn.onclick = () => openClassModal('all', null);
 
   $('modal-body').querySelectorAll('[data-cls-tab]').forEach((b) => {
-    b.onclick = () => openClassModal(b.dataset.clsTab);
+    b.onclick = () => openClassModal(b.dataset.clsTab, null);
+  });
+  $('modal-body').querySelectorAll('[data-hint-cls]').forEach((b) => {
+    b.onclick = () => {
+      const tr = getTrainerForClass(b.dataset.hintCls);
+      if (tr) showToast(`📍 ${tr.name} 힌트: ${tr.hint}`);
+    };
   });
   $('modal-body').querySelectorAll('[data-switch-cls]').forEach((b) => {
     b.onclick = async () => {
@@ -967,13 +1140,18 @@ function openClassModal(filterCat = 'all') {
       updateHUD();
       saveGame();
       showToast(`⚔️ [${currentClass().name}] 직업으로 전환했습니다!`);
-      openClassModal(filterCat);
+      openClassModal(filterCat, trainerId);
     };
   });
   $('modal-body').querySelectorAll('[data-unlock-cls]').forEach((b) => {
     b.onclick = async () => {
       const id = b.dataset.unlockCls;
       const c = CLASSES[id];
+      if (!activeTrainer || !activeTrainer.classes.includes(id)) {
+        const tr = getTrainerForClass(id);
+        showToast(`🔒 ${tr ? tr.name : '전직관'}을(를) 직접 찾아야 해금됩니다!`);
+        return;
+      }
       if (state.gold < c.unlockCost) { showToast(`골드가 부족합니다! (필요: ${c.unlockCost}G)`); return; }
       state.gold -= c.unlockCost;
       if (!state.unlockedClasses.includes(id)) state.unlockedClasses.push(id);
@@ -986,7 +1164,7 @@ function openClassModal(filterCat = 'all') {
       updateHUD();
       saveGame();
       showToast(`🎉 신규 직업 [${c.name}] 해금 및 전직 완료!`);
-      openClassModal(filterCat);
+      openClassModal(filterCat, trainerId);
     };
   });
 }
@@ -1357,14 +1535,24 @@ function updateHUD() {
   $('s1-name').textContent = c.skills[0].name;
   $('s2-name').textContent = c.skills[1].name;
   $('s3-name').textContent = c.skills[2].name;
+  $('s4-name').textContent = c.skills[3]?.name || '필살기';
+
+  for (let i = 1; i < 4; i++) {
+    const locked = state.level < (SKILL_REQ_LEVELS[i] || 1);
+    const slot = $(`slot-s${i + 1}`);
+    const lockEl = $(`s${i + 1}-lock`);
+    if (slot) slot.classList.toggle('locked', locked);
+    if (lockEl) lockEl.classList.toggle('hidden', !locked);
+  }
 
   $('party-buff-tag').classList.toggle('hidden', !(myParty && myParty.members.length > 1));
 
   // Quest UI
   const q = QUESTS[state.questIdx];
   if (q) {
+    const qProg = Math.min(getQuestProgress(q, true), q.count);
     $('quest-title').textContent = q.title;
-    $('quest-desc').textContent = `${q.desc} (${Math.min(state.questProg, q.count)}/${q.count})`;
+    $('quest-desc').textContent = `${q.desc} (${qProg}/${q.count})`;
     $('quest-reward').textContent = `보상: ${q.gold}G · 🔮${q.stone} · 💎${q.crystal}`;
   } else {
     $('quest-title').textContent = '모든 메인 퀘스트 완료!';
@@ -1416,6 +1604,7 @@ function updateCooldownsUI() {
   setCd('s1-cd', player.cds[0]);
   setCd('s2-cd', player.cds[1]);
   setCd('s3-cd', player.cds[2]);
+  setCd('s4-cd', player.cds[3]);
   setCd('dash-cd', player.dashCd);
   setCd('heal-cd', player.healCd);
   $('guard-active').classList.toggle('hidden', !player.guardActive);
@@ -1498,9 +1687,11 @@ function drawMinimap() {
     ctx.lineWidth = 1.8;
     ctx.beginPath(); ctx.arc(vx, vy, 31.5 * scale, 0, Math.PI * 2); ctx.stroke();
 
-    // NPCs
-    ctx.fillStyle = '#facc15';
+    // NPCs (마을 NPC + 이미 발견한 숨겨진 전직관만 미니맵에 표시)
     for (const n of worldBuilder.npcs) {
+      const discovered = !n.isTrainer || (state.foundTrainers || []).includes(n.trainerId);
+      if (!discovered) continue;
+      ctx.fillStyle = n.isTrainer ? '#f472b6' : '#facc15';
       const [x, y] = toXY(n.x, n.z);
       ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
     }
@@ -1577,11 +1768,13 @@ window.addEventListener('keydown', (e) => {
   if (k === '1') doSkill(0);
   if (k === '2') doSkill(1);
   if (k === '3') doSkill(2);
+  if (k === '4') doSkill(3);
   if (k === 'q') doDash();
   if (k === 'f') doGuard();
   if (k === 'r') doHeal();
   if (k === 'e') doInteract();
   if (k === 'z') toggleAutoHunt();
+  if (k === 'l') openQuestModal();
   if (k === 'j') openClassModal();
   if (k === 'u') openUpgradeModal();
   if (k === 'b') openDungeonModal();
@@ -1626,6 +1819,7 @@ function triggerAct(act) {
   else if (act === 's1') doSkill(0);
   else if (act === 's2') doSkill(1);
   else if (act === 's3') doSkill(2);
+  else if (act === 's4') doSkill(3);
   else if (act === 'dash') doDash();
   else if (act === 'guard') doGuard();
   else if (act === 'heal') doHeal();
@@ -1699,7 +1893,9 @@ function toggleAutoHunt() {
   showToast(player.autoHunt ? '🤖 자동 사냥 시작!' : '🤖 자동 사냥 중지');
 }
 $('btn-auto').onclick = toggleAutoHunt;
-$('btn-open-class').onclick = () => openClassModal('all');
+$('btn-open-quest').onclick = openQuestModal;
+$('quest-panel').onclick = (e) => { if (e.target !== $('btn-daily-claim')) openQuestModal(); };
+$('btn-open-class').onclick = () => openClassModal('all', null);
 $('btn-open-upgrade').onclick = openUpgradeModal;
 $('btn-open-dungeon').onclick = openDungeonModal;
 $('btn-open-map').onclick = openMapModal;
@@ -1898,12 +2094,18 @@ function serializeSave() {
     abyssFloor: state.abyssFloor,
     pvpWins: state.pvpWins,
     usedCoupons: state.usedCoupons,
+    foundTrainers: state.foundTrainers,
+    killCounts: state.killCounts,
+    claimedSideQuests: state.claimedSideQuests,
   };
 }
 
 function applySave(s) {
   if (!s) return;
   Object.assign(state, s);
+  if (!Array.isArray(state.foundTrainers)) state.foundTrainers = [];
+  if (!state.killCounts || typeof state.killCounts !== 'object') state.killCounts = {};
+  if (!Array.isArray(state.claimedSideQuests)) state.claimedSideQuests = [];
 }
 
 async function saveGame(keepalive = false) {
@@ -2131,7 +2333,7 @@ function animate(now) {
 function updatePlayer(dt) {
   if (player.inst?.mixer) player.inst.mixer.update(dt);
   if (player.atkCd > 0) player.atkCd -= dt;
-  for (let i = 0; i < 3; i++) if (player.cds[i] > 0) player.cds[i] -= dt;
+  for (let i = 0; i < 4; i++) if (player.cds[i] > 0) player.cds[i] -= dt;
   if (player.dashCd > 0) player.dashCd -= dt;
   if (player.healCd > 0) player.healCd -= dt;
   if (player.invulnTimer > 0) player.invulnTimer -= dt;
@@ -2202,8 +2404,9 @@ function updatePlayer(dt) {
         player.z += (dz / dist) * c.moveSpd * dt;
         moving = true;
       } else {
-        if (player.cds[2] <= 0) doSkill(2);
-        else if (player.cds[1] <= 0) doSkill(1);
+        if (state.level >= SKILL_REQ_LEVELS[3] && player.cds[3] <= 0) doSkill(3);
+        else if (state.level >= SKILL_REQ_LEVELS[2] && player.cds[2] <= 0) doSkill(2);
+        else if (state.level >= SKILL_REQ_LEVELS[1] && player.cds[1] <= 0) doSkill(1);
         else if (player.cds[0] <= 0) doSkill(0);
         else doAttack();
       }
@@ -2259,7 +2462,14 @@ function updatePlayer(dt) {
   camera.position.lerp(new THREE.Vector3(cx, cy, cz), Math.min(1, dt * 12));
   camera.lookAt(player.x, player.y + 1.5, player.z);
 
-  // Portal auto-step & Interact prompt
+  // Portal auto-step, hidden trainer proximity discovery & Interact prompt
+  if (player.zone === 'world') {
+    for (const n of worldBuilder.npcs) {
+      if (n.isTrainer && Math.hypot(n.x - player.x, n.z - player.z) < 9.5) {
+        discoverTrainer(n.trainerId);
+      }
+    }
+  }
   const inter = getNearestInteractable();
   if (inter) {
     $('interact-prompt').classList.remove('hidden');
@@ -2304,7 +2514,10 @@ function updateWorldPlates() {
     el.style.left = `${(v.x * 0.5 + 0.5) * window.innerWidth}px`;
     el.style.top = `${(-v.y * 0.5 + 0.5) * window.innerHeight}px`;
   };
-  for (const n of worldBuilder.npcs) projectPlate(n.plateEl, n.x, 2.4, n.z, 38);
+  for (const n of worldBuilder.npcs) {
+    const discovered = !n.isTrainer || (state.foundTrainers || []).includes(n.trainerId);
+    projectPlate(n.plateEl, n.x, (n.y || 0) + 2.4, n.z, discovered ? 38 : 20);
+  }
   for (const p of worldBuilder.portals) projectPlate(p.plateEl, p.x, p.y + 4.4, p.z, 46);
 }
 
