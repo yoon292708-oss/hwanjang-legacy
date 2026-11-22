@@ -682,6 +682,7 @@ const server = http.createServer(async (req, res) => {
     const ext = path.extname(filePath).toLowerCase();
     const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' };
     if (ext === '.glb' || urlPath.includes('/lib/three/')) headers['Cache-Control'] = 'public, max-age=86400';
+    else headers['Cache-Control'] = 'no-cache, must-revalidate';
     res.writeHead(200, headers);
     res.end(content);
   });

@@ -366,7 +366,7 @@ export class WorldBuilder {
     this._buildBridgesAndPaths(token);
 
     const npcDefs = [
-      { id: 'quest', name: '📜 길드장 엘린 (퀘스트/힌트)', path: 'npc_f/Adventurer.glb', x: -10, z: -8, rotY: 0.5, action: 'openQuest' },
+      { id: 'quest', name: '📜 길드장 엘린 (퀘스트)', path: 'npc_f/Adventurer.glb', x: -10, z: -8, rotY: 0.5, action: 'openQuest' },
       { id: 'upgrade', name: '⚒️ 대장장이 볼칸', path: 'npc_m/Worker.glb', x: 13, z: -5, rotY: -0.6, action: 'openUpgrade' },
       { id: 'dungeon', name: '🌀 차원 안내인 세라', path: 'npc_f/Witch.glb', x: 14, z: 8, rotY: -1.1, action: 'openDungeon' },
       { id: 'market', name: '💎 거래소 상인 리나', path: 'npc_f/Casual.glb', x: 10, z: 13, rotY: -2.4, action: 'openMarket' },
@@ -374,6 +374,7 @@ export class WorldBuilder {
         id: tr.id,
         name: tr.name,
         path: tr.model,
+        tint: tr.tint,
         x: tr.x,
         z: tr.z,
         rotY: tr.rotY,
@@ -387,7 +388,7 @@ export class WorldBuilder {
       ...villageProps.map(([p, x, z, o]) => this._place(p, x, z, { ...o, zoneId: 'world' }, token)),
       ...npcDefs.map(async (n) => {
         const ny = getTerrainY('world', n.x, n.z);
-        const inst = await this._place(n.path, n.x, n.z, { height: 2.1, rotY: n.rotY, zoneId: 'world' }, token);
+        const inst = await this._place(n.path, n.x, n.z, { height: 2.1, rotY: n.rotY, tint: n.tint, zoneId: 'world' }, token);
         if (inst && token === this.buildToken) {
           inst.model.traverse((b) => {
             if (!b.isBone) return;

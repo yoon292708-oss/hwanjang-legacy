@@ -6,7 +6,7 @@ import { instance, playAnim, attachWeapon } from './assets.js';
 import { SFX } from './audio.js';
 import {
   CLASSES, CLASS_ORDER, HERO_WEAPON_HIDE, EQUIP_GRADES, ZONES, REGIONS,
-  getRegionAt, TITLES, QUESTS, SIDE_QUESTS, COUPONS, SKILL_REQ_LEVELS, TRAINERS, getTrainerForClass,
+  getRegionAt, TITLES, QUESTS, SIDE_QUESTS, COUPONS, SKILL_REQ_LEVELS, TRAINERS,
 } from './data.js';
 import { WorldBuilder, getTerrainY, resolveWorldCollisions } from './world.js';
 import { VFXManager, MonsterManager } from './combat.js';
@@ -65,6 +65,8 @@ const state = {
   pvpWins: 0,
   usedCoupons: [],
   foundTrainers: [],
+  acceptedTrainers: [],
+  classQuestProgs: {},
   killCounts: {},
   claimedSideQuests: [],
 };
@@ -597,6 +599,29 @@ function grantExpAndLoot(exp, gold, stone, crystal, mobId) {
   if (q && (q.kind || 'kill') === 'kill' && mobId === q.targetId) {
     state.questProg++;
   }
+
+  // 전직 퀘스트 진행 업데이트
+  if (mobId && !mobId.startsWith('__')) {
+    if (!Array.isArray(state.acceptedTrainers)) state.acceptedTrainers = [];
+    if (!state.classQuestProgs || typeof state.classQuestProgs !== 'object') state.classQuestProgs = {};
+    for (const trId of state.acceptedTrainers) {
+      const tr = TRAINERS[trId];
+      if (!tr || !tr.quest || tr.quest.targetId !== mobId) continue;
+      if (state.unlockedClasses.includes(tr.cls)) continue;
+      const prev = state.classQuestProgs[trId] || 0;
+      if (prev < tr.quest.count) {
+        const next = prev + 1;
+        state.classQuestProgs[trId] = next;
+        const cName = CLASSES[tr.cls]?.name || tr.cls;
+        if (next >= tr.quest.count) {
+          SFX.levelUp();
+          showToast(`🎉 [${tr.quest.title}] 완료! ${tr.name}에게 돌아가 [${cName}]로 무료 전직하세요!`);
+        } else {
+          showToast(`⚔️ [${tr.quest.title}] (${next}/${tr.quest.count})`);
+        }
+      }
+    }
+  }
   checkMainQuestProgress();
   updateHUD();
 }
@@ -951,7 +976,7 @@ $('btn-modal-close').onclick = closeModal;
 $('modal-backdrop').onclick = (e) => { if (e.target === $('modal-backdrop')) closeModal(); };
 
 function openModalByAction(act, trainerId = null) {
-  if (act === 'openClass') openClassModal('all', trainerId);
+  if (act === 'openClass' && trainerId) openTrainerModal(trainerId);
   else if (act === 'openQuest') openQuestModal();
   else if (act === 'openUpgrade') openUpgradeModal();
   else if (act === 'openDungeon') openDungeonModal();
@@ -969,6 +994,24 @@ function openQuestModal() {
       <div class="item-desc" style="color:#fde047;margin-top:4px">보상: 🪙 ${mq.gold}G · 🔮 ${mq.stone} · 💎 ${mq.crystal} · ⭐ EXP ${mq.exp}</div>
     </div>
   ` : `<div class="upgrade-box"><h3 style="margin:0;color:#4ade80">🎉 모든 메인 퀘스트 완료!</h3></div>`;
+
+  const activeTrainerRows = (state.acceptedTrainers || [])
+    .map((trId) => TRAINERS[trId])
+    .filter((tr) => tr && !state.unlockedClasses.includes(tr.cls))
+    .map((tr) => {
+      const c = CLASSES[tr.cls];
+      const prog = Math.min((state.classQuestProgs || {})[tr.id] || 0, tr.quest.count);
+      const done = prog >= tr.quest.count;
+      return `
+        <div class="list-row" style="border-color:${done ? 'rgba(74,222,128,0.5)' : 'rgba(250,204,21,0.4)'}">
+          <div>
+            <div style="font-weight:800;color:#fde047">${c.icon} ${c.name} 전직 — ${tr.quest.title} (${prog}/${tr.quest.count})</div>
+            <div class="item-desc">${tr.quest.desc} · 담당 전직관: ${tr.name}</div>
+          </div>
+          <span class="tier-tag" style="color:${done ? '#4ade80' : '#fde047'}">${done ? '완료! 전직관에게 가기' : '진행 중'}</span>
+        </div>
+      `;
+    }).join('');
 
   const sideRows = SIDE_QUESTS.map((sq) => {
     const done = (state.claimedSideQuests || []).includes(sq.id);
@@ -989,21 +1032,11 @@ function openQuestModal() {
     `;
   }).join('');
 
-  const hintsHtml = Object.values(TRAINERS).map((tr) => {
-    const found = (state.foundTrainers || []).includes(tr.id);
-    const clsNames = tr.classes.map((cid) => `${CLASSES[cid]?.icon || ''}${CLASSES[cid]?.name || cid}`).join(', ');
-    return `
-      <div class="list-row">
-        <div>
-          <div style="font-weight:800;color:${found ? '#4ade80' : '#fde047'}">${found ? `✅ ${tr.name} (발견됨!)` : `❓ 숨겨진 전직관 (${tr.regionName})`}</div>
-          <div class="item-desc">담당 직업: ${clsNames}</div>
-          <div class="item-desc" style="color:#cbd5e1">📍 힌트: ${found ? `좌표 (${tr.x}, ${tr.z}) · ${tr.hint}` : tr.hint}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  const classQuestSection = activeTrainerRows
+    ? `<h3 style="margin:14px 0 8px">⚔️ 진행 중인 전직 퀘스트</h3>${activeTrainerRows}`
+    : `<div class="item-desc" style="margin-bottom:10px">💡 맵 어딘가에 숨어있는 전직관을 찾아 대화([E])하면 전직 퀘스트를 받을 수 있습니다! (무료 전직)</div>`;
 
-  openModal('📜 퀘스트 게시판 & 숨겨진 전직관 소문', `${mainHtml}<h3 style="margin:14px 0 8px">🗺️ 탐험 · 사냥 서브 퀘스트</h3>${sideRows}<h3 style="margin:16px 0 8px">🧭 숨겨진 전직관 소문 (${(state.foundTrainers || []).length}/${Object.keys(TRAINERS).length})</h3>${hintsHtml}`);
+  openModal('📜 퀘스트 게시판', `${mainHtml}${classQuestSection}<h3 style="margin:14px 0 8px">🗺️ 탐험 · 사냥 서브 퀘스트</h3>${sideRows}`);
 
   $('modal-body').querySelectorAll('[data-claim-sq]').forEach((b) => {
     b.onclick = () => {
@@ -1026,113 +1059,138 @@ function openQuestModal() {
   });
 }
 
-function openClassModal(filterCat = 'all', trainerId = null) {
-  if (typeof filterCat !== 'string') filterCat = 'all';
-  const cur = currentClass();
-  const statsNow = calcStats();
-  const activeTrainer = trainerId ? TRAINERS[trainerId] : null;
-  let list = CLASS_ORDER;
-  if (activeTrainer) {
-    list = CLASS_ORDER.filter((id) => activeTrainer.classes.includes(id));
-  } else if (filterCat !== 'all') {
-    list = CLASS_ORDER.filter((id) => CLASSES[id].category === filterCat);
-  }
-
-  const cards = list.map((id) => {
-    const c = CLASSES[id];
-    const unlocked = state.unlockedClasses.includes(id);
-    const active = state.cls === id;
-    const tierCls = c.tier.startsWith('S') ? 's' : c.tier.startsWith('A') ? 'a' : '';
-    const canBuy = state.gold >= c.unlockCost;
-    const tr = getTrainerForClass(id);
-    const canUnlockHere = !!(activeTrainer && activeTrainer.classes.includes(id));
-    const skHtml = c.skills.map((s, i) => {
-      const reqLv = SKILL_REQ_LEVELS[i] || 1;
-      const lvTag = reqLv > 1 ? ` <span style="color:#fbbf24">(Lv.${reqLv})</span>` : '';
-      return `<div class="skill-mini"><b>[${i + 1}] ${s.name}</b>${lvTag} (${s.cd}s) · ${s.desc}</div>`;
-    }).join('');
-    let btnHtml = '';
-    if (active) btnHtml = `<button class="btn sec" disabled>✅ 현재 장착 중</button>`;
-    else if (unlocked) btnHtml = `<button class="btn primary" data-switch-cls="${id}">🔄 이 직업으로 전환</button>`;
-    else if (canUnlockHere) btnHtml = `<button class="btn ${canBuy ? 'accent' : 'sec'}" data-unlock-cls="${id}">🔓 해금하기 (🪙 ${c.unlockCost.toLocaleString()}G)</button>`;
-    else btnHtml = `<button class="btn sec" data-hint-cls="${id}">🔒 ${tr ? tr.name : '전직관'} 찾아가기</button>`;
-
-    return `
-      <div class="cls-card ${active ? 'active' : ''}" style="--cls-col:${c.hex}">
-        <div class="item-title" style="color:${c.hex}">
-          <span>${c.icon} ${c.name}</span>
-          <span class="tier-tag ${tierCls}">${c.tier}</span>
-        </div>
-        <div class="item-desc">${c.desc}</div>
-        ${tr ? `<div><span class="trainer-badge">🧭 담당: ${tr.name}</span></div>` : ''}
-        <div class="stat-pills">
-          <span class="stat-pill">⚔️ 공격 ${c.baseAtk}</span>
-          <span class="stat-pill">❤️ 체력 ${c.baseHp}</span>
-          <span class="stat-pill">🎯 사거리 ${c.range}m</span>
-          ${c.goldBonus ? `<span class="stat-pill">🪙 골드 +35%</span>` : `<span class="stat-pill">💥 치명 +${Math.round((c.critBonus || 0) * 100)}%</span>`}
-        </div>
-        <div class="cls-skills">${skHtml}</div>
-        <div class="cls-foot">${btnHtml}</div>
-      </div>
-    `;
+function renderClassCardHtml(id, footerHtml) {
+  const c = CLASSES[id];
+  const active = state.cls === id;
+  const tierCls = c.tier.startsWith('S') ? 's' : c.tier.startsWith('A') ? 'a' : '';
+  const skHtml = c.skills.map((s, i) => {
+    const reqLv = SKILL_REQ_LEVELS[i] || 1;
+    const lvTag = reqLv > 1 ? ` <span style="color:#fbbf24">(Lv.${reqLv})</span>` : '';
+    return `<div class="skill-mini"><b>[${i + 1}] ${s.name}</b>${lvTag} (${s.cd}s) · ${s.desc}</div>`;
   }).join('');
 
-  const trainerHeader = activeTrainer
-    ? `<div class="upgrade-box" style="border-color:rgba(250,204,21,0.45);margin-bottom:12px">
-         <div style="font-weight:800;color:#fde047;margin-bottom:4px">${activeTrainer.name} (${activeTrainer.regionName})</div>
-         <div class="item-desc" style="color:#e2e8f0">"${activeTrainer.greeting}"</div>
-         <button id="btn-show-all-dex" class="mini-btn" style="margin-top:8px">📖 전체 15종 전직 도감 보기</button>
-       </div>`
-    : `<div class="upgrade-box" style="margin-bottom:12px">
-         <div style="font-weight:800;color:#fde047;margin-bottom:4px">🧭 숨겨진 전직관 발견: ${(state.foundTrainers || []).length} / ${Object.keys(TRAINERS).length}명</div>
-         <div class="item-desc">신규 직업 해금은 <b>맵 어딘가에 숨어있는 해당 전직관을 직접 찾아 대화([E])</b>해야 가능합니다! (힌트는 📜 퀘스트 [L] 또는 아래 🔒 버튼 클릭!)</div>
-       </div>`;
-
-  const tabsHtml = activeTrainer ? '' : `
-    <div class="filter-tabs">
-      <button class="filter-tab ${filterCat === 'all' ? 'active' : ''}" data-cls-tab="all">전체 (${CLASS_ORDER.length})</button>
-      <button class="filter-tab ${filterCat === 'melee' ? 'active' : ''}" data-cls-tab="melee">⚔️ 근접·전투</button>
-      <button class="filter-tab ${filterCat === 'magic' ? 'active' : ''}" data-cls-tab="magic">🔮 마법·원거리</button>
-      <button class="filter-tab ${filterCat === 'support' ? 'active' : ''}" data-cls-tab="support">✨ 지원·특수</button>
-    </div>
-  `;
-
-  const banner = `
-    <div class="class-hero-banner">
-      <div class="class-hero-main">
-        <div class="class-hero-icon">${cur.icon}</div>
-        <div>
-          <div style="font-size:16px;font-weight:800;color:${cur.hex}">현재 직업: ${cur.name} <span class="tier-tag">${cur.tier}</span></div>
-          <div class="class-hero-meta">
-            <span>⚔️ 전투력 ATK <b>${statsNow.atk}</b></span>
-            <span>❤️ 최대 HP <b>${statsNow.maxHp}</b></span>
-            <span>🔓 해금 <b>${state.unlockedClasses.length} / ${CLASS_ORDER.length}</b></span>
-          </div>
-        </div>
+  return `
+    <div class="cls-card ${active ? 'active' : ''}" style="--cls-col:${c.hex}">
+      <div class="item-title" style="color:${c.hex}">
+        <span>${c.icon} ${c.name}</span>
+        <span class="tier-tag ${tierCls}">${c.tier}</span>
       </div>
-      <div style="font-size:14px;font-weight:800;color:#facc15">보유 골드: 🪙 ${state.gold.toLocaleString()}G</div>
+      <div class="item-desc">${c.desc}</div>
+      <div class="stat-pills">
+        <span class="stat-pill">⚔️ 공격 ${c.baseAtk}</span>
+        <span class="stat-pill">❤️ 체력 ${c.baseHp}</span>
+        <span class="stat-pill">🎯 사거리 ${c.range}m</span>
+        ${c.goldBonus ? `<span class="stat-pill">🪙 골드 +35%</span>` : `<span class="stat-pill">💥 치명 +${Math.round((c.critBonus || 0) * 100)}%</span>`}
+      </div>
+      <div class="cls-skills">${skHtml}</div>
+      <div class="cls-foot">${footerHtml}</div>
     </div>
-    ${trainerHeader}
-    ${tabsHtml}
+  `;
+}
+
+function openTrainerModal(trainerId) {
+  const tr = TRAINERS[trainerId];
+  if (!tr) return;
+  const id = tr.cls;
+  const c = CLASSES[id];
+  if (!c) return;
+  const unlocked = state.unlockedClasses.includes(id);
+  const active = state.cls === id;
+  const accepted = (state.acceptedTrainers || []).includes(tr.id);
+  const prog = Math.min((state.classQuestProgs || {})[tr.id] || 0, tr.quest.count);
+  const qDone = prog >= tr.quest.count;
+
+  let statusBox = '';
+  let btnHtml = '';
+  if (active) {
+    statusBox = `<div class="upgrade-box" style="border-color:rgba(74,222,128,0.45)"><b style="color:#4ade80">✅ 이미 [${c.name}] 직업으로 활약 중입니다!</b></div>`;
+    btnHtml = `<button class="btn sec" disabled>✅ 현재 장착 중</button>`;
+  } else if (unlocked) {
+    statusBox = `<div class="upgrade-box" style="border-color:rgba(56,189,248,0.45)"><b style="color:#38bdf8">🎓 전직 퀘스트 완료됨 · 언제든 무료로 전환할 수 있습니다!</b></div>`;
+    btnHtml = `<button id="btn-tr-switch" class="btn primary big">🔄 ${c.name}(으)로 무료 전직하기</button>`;
+  } else if (!accepted) {
+    statusBox = `
+      <div class="upgrade-box" style="border-color:rgba(250,204,21,0.5)">
+        <div style="font-weight:800;color:#fde047;margin-bottom:4px">📜 전직 퀘스트: ${tr.quest.title}</div>
+        <div class="item-desc">목표: <b>${tr.quest.desc}</b> (0 / ${tr.quest.count})</div>
+        <div class="item-desc" style="color:#4ade80;margin-top:4px">전직 비용: <b>무료 (0G)</b> · 퀘스트를 깨면 바로 전직!</div>
+      </div>`;
+    btnHtml = `<button id="btn-tr-accept" class="btn accent big">📜 전직 퀘스트 받기</button>`;
+  } else if (!qDone) {
+    statusBox = `
+      <div class="upgrade-box" style="border-color:rgba(250,204,21,0.5)">
+        <div style="font-weight:800;color:#fde047;margin-bottom:4px">⏳ 전직 퀘스트 진행 중: ${tr.quest.title}</div>
+        <div class="item-desc">목표: <b>${tr.quest.desc}</b> — <b style="color:#38bdf8">${prog} / ${tr.quest.count}</b></div>
+        <div class="item-desc" style="margin-top:4px">목표를 완료한 뒤 나에게 다시 말을 걸면 무료로 전직할 수 있네!</div>
+      </div>`;
+    btnHtml = `<button class="btn sec" disabled>⏳ 퀘스트 진행 중 (${prog}/${tr.quest.count})</button>`;
+  } else {
+    statusBox = `
+      <div class="upgrade-box" style="border-color:rgba(74,222,128,0.65)">
+        <div style="font-weight:800;color:#4ade80;margin-bottom:4px">🎉 전직 퀘스트 완료! (${prog}/${tr.quest.count})</div>
+        <div class="item-desc">시험을 훌륭히 통과했구나! 지금 바로 <b>${c.name}</b>(으)로 전직할 수 있다! (비용: 0G)</div>
+      </div>`;
+    btnHtml = `<button id="btn-tr-complete" class="btn accent big">✨ 퀘스트 완료! [${c.name}] 무료 전직하기</button>`;
+  }
+
+  const headerHtml = `
+    <div class="upgrade-box" style="border-color:rgba(250,204,21,0.4);margin-bottom:12px">
+      <div style="font-weight:800;color:#fde047;margin-bottom:4px">${tr.name} · ${c.name} 전담 스승</div>
+      <div class="item-desc" style="color:#e2e8f0">"${tr.greeting}"</div>
+    </div>
+    ${statusBox}
   `;
 
-  openModal(activeTrainer ? `${activeTrainer.name} — 전직 수련장` : `⚔️ 전직 도감 (${CLASS_ORDER.length}종) — 숨겨진 스승 찾기`, `${banner}<div class="card-grid">${cards}</div>`);
+  openModal(`${tr.name} — ${c.icon} ${c.name} 전직`, `${headerHtml}${renderClassCardHtml(id, btnHtml)}`);
 
-  const showAllBtn = $('btn-show-all-dex');
-  if (showAllBtn) showAllBtn.onclick = () => openClassModal('all', null);
-
-  $('modal-body').querySelectorAll('[data-cls-tab]').forEach((b) => {
-    b.onclick = () => openClassModal(b.dataset.clsTab, null);
-  });
-  $('modal-body').querySelectorAll('[data-hint-cls]').forEach((b) => {
-    b.onclick = () => {
-      const tr = getTrainerForClass(b.dataset.hintCls);
-      if (tr) showToast(`📍 ${tr.name} 힌트: ${tr.hint}`);
+  const btnAccept = $('btn-tr-accept');
+  if (btnAccept) {
+    btnAccept.onclick = () => {
+      if (!Array.isArray(state.acceptedTrainers)) state.acceptedTrainers = [];
+      if (!state.acceptedTrainers.includes(tr.id)) state.acceptedTrainers.push(tr.id);
+      SFX.skill();
+      showToast(`📜 전직 퀘스트 [${tr.quest.title}] 수락! ${tr.quest.desc}`);
+      updateHUD();
+      saveGame();
+      closeModal();
     };
-  });
-  $('modal-body').querySelectorAll('[data-switch-cls]').forEach((b) => {
+  }
+
+  const switchToClass = async (isNewUnlock) => {
+    if (!state.unlockedClasses.includes(id)) state.unlockedClasses.push(id);
+    state.cls = id;
+    const stats = calcStats();
+    player.maxHp = stats.maxHp;
+    player.hp = stats.maxHp;
+    await rebuildPlayerModel();
+    SFX.levelUp();
+    updateHUD();
+    saveGame();
+    showToast(isNewUnlock ? `🎉 퀘스트 완료! [${c.name}] 무료 전직 성공!` : `⚔️ [${c.name}] 직업으로 전환했습니다!`);
+    openTrainerModal(trainerId);
+  };
+
+  const btnComplete = $('btn-tr-complete');
+  if (btnComplete) btnComplete.onclick = () => switchToClass(true);
+
+  const btnSwitch = $('btn-tr-switch');
+  if (btnSwitch) btnSwitch.onclick = () => switchToClass(false);
+}
+
+function openMyUnlockedClassesModal() {
+  const cards = state.unlockedClasses
+    .filter((id) => CLASSES[id])
+    .map((id) => {
+      const active = state.cls === id;
+      const btn = active
+        ? `<button class="btn sec" disabled>✅ 현재 장착 중</button>`
+        : `<button class="btn primary" data-switch-own="${id}">🔄 이 직업으로 전환</button>`;
+      return renderClassCardHtml(id, btn);
+    }).join('');
+  openModal(`⚔️ 내가 해금한 직업 (${state.unlockedClasses.length}종)`, `<div class="card-grid">${cards}</div>`);
+  $('modal-body').querySelectorAll('[data-switch-own]').forEach((b) => {
     b.onclick = async () => {
-      state.cls = b.dataset.switchCls;
+      state.cls = b.dataset.switchOwn;
       const stats = calcStats();
       player.maxHp = stats.maxHp;
       player.hp = Math.min(player.hp, stats.maxHp);
@@ -1140,31 +1198,7 @@ function openClassModal(filterCat = 'all', trainerId = null) {
       updateHUD();
       saveGame();
       showToast(`⚔️ [${currentClass().name}] 직업으로 전환했습니다!`);
-      openClassModal(filterCat, trainerId);
-    };
-  });
-  $('modal-body').querySelectorAll('[data-unlock-cls]').forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.unlockCls;
-      const c = CLASSES[id];
-      if (!activeTrainer || !activeTrainer.classes.includes(id)) {
-        const tr = getTrainerForClass(id);
-        showToast(`🔒 ${tr ? tr.name : '전직관'}을(를) 직접 찾아야 해금됩니다!`);
-        return;
-      }
-      if (state.gold < c.unlockCost) { showToast(`골드가 부족합니다! (필요: ${c.unlockCost}G)`); return; }
-      state.gold -= c.unlockCost;
-      if (!state.unlockedClasses.includes(id)) state.unlockedClasses.push(id);
-      state.cls = id;
-      const stats = calcStats();
-      player.maxHp = stats.maxHp;
-      player.hp = stats.maxHp;
-      await rebuildPlayerModel();
-      SFX.levelUp();
-      updateHUD();
-      saveGame();
-      showToast(`🎉 신규 직업 [${c.name}] 해금 및 전직 완료!`);
-      openClassModal(filterCat, trainerId);
+      closeModal();
     };
   });
 }
@@ -1561,6 +1595,23 @@ function updateHUD() {
   }
 
   // Daily Quest UI
+  const cqEl = $('class-quest-hud');
+  if (cqEl) {
+    const activeTr = (state.acceptedTrainers || [])
+      .map((id) => TRAINERS[id])
+      .find((tr) => tr && !state.unlockedClasses.includes(tr.cls));
+    if (activeTr) {
+      const prog = Math.min((state.classQuestProgs || {})[activeTr.id] || 0, activeTr.quest.count);
+      const done = prog >= activeTr.quest.count;
+      cqEl.classList.remove('hidden');
+      cqEl.textContent = done
+        ? `✨ [${activeTr.quest.title}] 완료! ${activeTr.name}에게 가세요`
+        : `⚔️ 전직: ${activeTr.quest.desc} (${prog}/${activeTr.quest.count})`;
+    } else {
+      cqEl.classList.add('hidden');
+    }
+  }
+
   const claimed = state.dailyDate && state.dailyDate === state.todayStr;
   if (claimed) {
     $('daily-text').textContent = '📅 일일 퀘스트 완료 ✓';
@@ -1775,7 +1826,6 @@ window.addEventListener('keydown', (e) => {
   if (k === 'e') doInteract();
   if (k === 'z') toggleAutoHunt();
   if (k === 'l') openQuestModal();
-  if (k === 'j') openClassModal();
   if (k === 'u') openUpgradeModal();
   if (k === 'b') openDungeonModal();
   if (k === 'm') openMapModal();
@@ -1895,7 +1945,9 @@ function toggleAutoHunt() {
 $('btn-auto').onclick = toggleAutoHunt;
 $('btn-open-quest').onclick = openQuestModal;
 $('quest-panel').onclick = (e) => { if (e.target !== $('btn-daily-claim')) openQuestModal(); };
-$('btn-open-class').onclick = () => openClassModal('all', null);
+$('hud-class').style.cursor = 'pointer';
+$('hud-class').title = '해금한 직업 전환';
+$('hud-class').onclick = () => { if (state.unlockedClasses.length > 1) openMyUnlockedClassesModal(); };
 $('btn-open-upgrade').onclick = openUpgradeModal;
 $('btn-open-dungeon').onclick = openDungeonModal;
 $('btn-open-map').onclick = openMapModal;
@@ -2095,6 +2147,8 @@ function serializeSave() {
     pvpWins: state.pvpWins,
     usedCoupons: state.usedCoupons,
     foundTrainers: state.foundTrainers,
+    acceptedTrainers: state.acceptedTrainers,
+    classQuestProgs: state.classQuestProgs,
     killCounts: state.killCounts,
     claimedSideQuests: state.claimedSideQuests,
   };
@@ -2104,6 +2158,8 @@ function applySave(s) {
   if (!s) return;
   Object.assign(state, s);
   if (!Array.isArray(state.foundTrainers)) state.foundTrainers = [];
+  if (!Array.isArray(state.acceptedTrainers)) state.acceptedTrainers = [];
+  if (!state.classQuestProgs || typeof state.classQuestProgs !== 'object') state.classQuestProgs = {};
   if (!state.killCounts || typeof state.killCounts !== 'object') state.killCounts = {};
   if (!Array.isArray(state.claimedSideQuests)) state.claimedSideQuests = [];
 }
