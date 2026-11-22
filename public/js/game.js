@@ -2219,7 +2219,43 @@ function connectWS() {
       addChatLine(escapeHtml(msg.text), 'sys');
     } else if (msg.type === 'admin_ok') {
       state.isAdmin = true;
-      showToast('🔑 운영자 권한이 부여되었습니다! (/world, /type beta <닉네임>, /type 운영자의 권한 <닉네임>)');
+      showToast('🔑 운영자 권한 획득! 채팅에 /help 입력 시 명령어 목록을 볼 수 있습니다.');
+      addChatLine('👑 운영자 권한 활성화! (/help 입력 시 전체 명령어 확인)', 'admin');
+    } else if (msg.type === 'admin_grant') {
+      const notes = [];
+      if (typeof msg.gold === 'number') {
+        state.gold = Math.max(0, state.gold + msg.gold);
+        notes.push(`🪙 ${msg.gold >= 0 ? '+' : ''}${msg.gold.toLocaleString()}G`);
+      }
+      if (typeof msg.stone === 'number') {
+        state.stone = Math.max(0, state.stone + msg.stone);
+        notes.push(`🔮 ${msg.stone >= 0 ? '+' : ''}${msg.stone}`);
+      }
+      if (typeof msg.crystal === 'number') {
+        state.crystal = Math.max(0, state.crystal + msg.crystal);
+        notes.push(`💎 ${msg.crystal >= 0 ? '+' : ''}${msg.crystal}`);
+      }
+      if (typeof msg.level === 'number') {
+        state.level = Math.max(1, Math.min(99, Math.floor(msg.level)));
+        state.exp = 0;
+        notes.push(`⬆️ Lv.${state.level}`);
+      }
+      const st = calcStats();
+      player.maxHp = st.maxHp;
+      if (msg.heal || typeof msg.level === 'number') {
+        player.hp = st.maxHp;
+        if (msg.heal) notes.push('💚 HP 100% 회복');
+      } else {
+        player.hp = Math.min(player.hp, st.maxHp);
+      }
+      SFX.levelUp();
+      checkMainQuestProgress();
+      updateHUD();
+      saveGame();
+      if (notes.length) showToast(`👑 운영자 지급: ${notes.join(' · ')}`);
+    } else if (msg.type === 'kicked') {
+      showToast(`⛔ ${msg.reason || '접속이 종료되었습니다.'}`);
+      setTimeout(() => location.reload(), 1200);
     } else if (msg.type === 'grant_title') {
       if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
       if (msg.titleId && !state.grantedTitles.includes(msg.titleId)) state.grantedTitles.push(msg.titleId);

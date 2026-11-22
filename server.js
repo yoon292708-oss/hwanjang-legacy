@@ -419,6 +419,167 @@ function cleanupSocket(ws) {
   }
 }
 
+function resolveTargetAndNum(parts, selfNick) {
+  if (parts.length === 1 && /^-?\d+$/.test(parts[0])) {
+    return { targetNick: selfNick, num: Number(parts[0]) };
+  }
+  if (parts.length >= 2 && /^-?\d+$/.test(parts[parts.length - 1])) {
+    const num = Number(parts[parts.length - 1]);
+    const targetNick = parts.slice(0, -1).join(' ').trim();
+    return { targetNick, num };
+  }
+  return { targetNick: '', num: NaN };
+}
+
+function handleAdminChatCommand(ws, p, text) {
+  const cmd = text.split(/\s+/)[0].toLowerCase();
+  if (cmd === '/admin') {
+    const key = text.slice(6).trim();
+    if (key.toUpperCase() === String(cfg.adminKey).toUpperCase()) {
+      if (!cfg.admins.includes(p.nick)) cfg.admins.push(p.nick);
+      persistCfg();
+      sendWS(ws, { type: 'admin_ok' });
+    } else {
+      sendWS(ws, { type: 'sys', text: '운영자 키가 올바르지 않습니다.' });
+    }
+    return true;
+  }
+
+  if (cmd === '/help') {
+    if (isAdmin(p.nick)) {
+      sendWS(ws, { type: 'sys', text: '👑 운영자 명령어: /gold [닉네임] <금액> | /stone [닉네임] <수량> | /crystal [닉네임] <수량> | /lv [닉네임] <레벨> | /heal [닉네임] | /type beta <닉네임> | /type 운영자의 권한 <닉네임> | /say <공지> | /world <raid|meteor|horde> <지역> <레벨> | /kick <닉네임>' });
+    } else {
+      sendWS(ws, { type: 'sys', text: '💡 기본 명령어: /admin <운영자키>' });
+    }
+    return true;
+  }
+
+  const adminCmds = ['/type', '/world', '/gold', '/stone', '/crystal', '/gem', '/lv', '/level', '/heal', '/say', '/notice', '/kick'];
+  if (!adminCmds.includes(cmd)) return false;
+  if (!isAdmin(p.nick)) {
+    sendWS(ws, { type: 'sys', text: '⛔ 운영자 권한이 필요합니다. 먼저 /admin <운영자키> 를 입력하세요.' });
+    return true;
+  }
+
+  const args = text.slice(cmd.length).trim().split(/\s+/).filter(Boolean);
+
+  if (cmd === '/type') {
+    const rest = text.slice(5).trim();
+    let titleId = '';
+    let titleName = '';
+    let targetNick = '';
+    if (/^운영자의\s*권한\s+(.+)$/.test(rest)) {
+      titleId = 't_admin_power';
+      titleName = '운영자의 권한';
+      targetNick = rest.replace(/^운영자의\s*권한\s+/, '').trim();
+    } else if (/^(beta|배타태스터|베타테스터)\s+(.+)$/i.test(rest)) {
+      titleId = 't_beta';
+      titleName = '배타태스터';
+      targetNick = rest.replace(/^(beta|배타태스터|베타테스터)\s+/i, '').trim();
+    } else {
+      sendWS(ws, { type: 'sys', text: '사용법: /type beta <닉네임> 또는 /type 운영자의 권한 <닉네임>' });
+      return true;
+    }
+    const acc = db.accounts[targetNick];
+    if (!acc) { sendWS(ws, { type: 'sys', text: `플레이어 [${targetNick}] 계정을 찾을 수 없습니다.` }); return true; }
+    if (!Array.isArray(acc.grantedTitles)) acc.grantedTitles = [];
+    if (!acc.grantedTitles.includes(titleId)) acc.grantedTitles.push(titleId);
+    if (acc.save && typeof acc.save === 'object') {
+      if (!Array.isArray(acc.save.grantedTitles)) acc.save.grantedTitles = [];
+      if (!acc.save.grantedTitles.includes(titleId)) acc.save.grantedTitles.push(titleId);
+    }
+    persistAccounts(true);
+    const targetWs = findWSByNick(targetNick);
+    if (targetWs) sendWS(targetWs, { type: 'grant_title', titleId, titleName, by: p.nick });
+    broadcast({ type: 'sys', text: `👑 운영자 ${p.nick}님이 [${targetNick}]님에게 [${titleName}] 칭호를 부여했습니다!` });
+    return true;
+  }
+
+  if (cmd === '/world') {
+    const err = startWorld(p.nick, args[0] || 'raid', args[1] || p.zone || 'winter', Number(args[2]) || 50);
+    if (err) sendWS(ws, { type: 'sys', text: err });
+    return true;
+  }
+
+  if (cmd === '/say' || cmd === '/notice') {
+    const notice = text.slice(cmd.length).trim();
+    if (!notice) { sendWS(ws, { type: 'sys', text: '사용법: /say <공지 내용>' }); return true; }
+    broadcast({ type: 'announce', text: `[운영자] ${notice}` });
+    return true;
+  }
+
+  if (cmd === '/kick') {
+    const targetNick = args.join(' ').trim();
+    const targetWs = targetNick ? findWSByNick(targetNick) : null;
+    if (!targetWs) { sendWS(ws, { type: 'sys', text: `접속 중인 플레이어 [${targetNick}]을(를) 찾을 수 없습니다.` }); return true; }
+    sendWS(targetWs, { type: 'kicked', reason: '운영자에 의해 접속이 종료되었습니다.' });
+    cleanupSocket(targetWs);
+    try { targetWs.end(); } catch {}
+    broadcast({ type: 'sys', text: `🔨 운영자가 [${targetNick}]님의 접속을 종료했습니다.` });
+    return true;
+  }
+
+  if (cmd === '/heal') {
+    const targetNick = args.join(' ').trim() || p.nick;
+    const targetWs = findWSByNick(targetNick);
+    if (!targetWs) { sendWS(ws, { type: 'sys', text: `접속 중인 플레이어 [${targetNick}]을(를) 찾을 수 없습니다.` }); return true; }
+    sendWS(targetWs, { type: 'admin_grant', heal: true, by: p.nick });
+    sendWS(ws, { type: 'sys', text: `💚 [${targetNick}]님의 체력을 100% 회복시켰습니다.` });
+    return true;
+  }
+
+  const { targetNick, num } = resolveTargetAndNum(args, p.nick);
+  if (!targetNick || !Number.isFinite(num)) {
+    sendWS(ws, { type: 'sys', text: `사용법: ${cmd} [닉네임] <숫자> (예: ${cmd} 1000)` });
+    return true;
+  }
+  const acc = db.accounts[targetNick];
+  if (!acc) { sendWS(ws, { type: 'sys', text: `플레이어 [${targetNick}] 계정을 찾을 수 없습니다.` }); return true; }
+
+  if (cmd === '/gold') {
+    const delta = Math.floor(num);
+    if (acc.save && typeof acc.save === 'object') acc.save.gold = Math.max(0, (acc.save.gold || 0) + delta);
+    else if (!findWSByNick(targetNick)) acc.pendingGold = Math.max(0, (acc.pendingGold || 0) + delta);
+    persistAccounts(true);
+    const targetWs = findWSByNick(targetNick);
+    if (targetWs) sendWS(targetWs, { type: 'admin_grant', gold: delta, by: p.nick });
+    sendWS(ws, { type: 'sys', text: `🪙 [${targetNick}]님에게 골드 ${delta.toLocaleString()}G를 지급했습니다.` });
+    return true;
+  }
+
+  if (cmd === '/stone') {
+    const delta = Math.floor(num);
+    if (acc.save && typeof acc.save === 'object') acc.save.stone = Math.max(0, (acc.save.stone || 0) + delta);
+    persistAccounts(true);
+    const targetWs = findWSByNick(targetNick);
+    if (targetWs) sendWS(targetWs, { type: 'admin_grant', stone: delta, by: p.nick });
+    sendWS(ws, { type: 'sys', text: `🔮 [${targetNick}]님에게 강화석 ${delta}개를 지급했습니다.` });
+    return true;
+  }
+
+  if (cmd === '/crystal' || cmd === '/gem') {
+    const delta = Math.floor(num);
+    if (acc.save && typeof acc.save === 'object') acc.save.crystal = Math.max(0, (acc.save.crystal || 0) + delta);
+    persistAccounts(true);
+    const targetWs = findWSByNick(targetNick);
+    if (targetWs) sendWS(targetWs, { type: 'admin_grant', crystal: delta, by: p.nick });
+    sendWS(ws, { type: 'sys', text: `💎 [${targetNick}]님에게 결정 ${delta}개를 지급했습니다.` });
+    return true;
+  }
+
+  if (cmd === '/lv' || cmd === '/level') {
+    const lv = Math.max(1, Math.min(99, Math.floor(num)));
+    if (acc.save && typeof acc.save === 'object') { acc.save.level = lv; acc.save.exp = 0; }
+    persistAccounts(true);
+    const targetWs = findWSByNick(targetNick);
+    if (targetWs) sendWS(targetWs, { type: 'admin_grant', level: lv, by: p.nick });
+    sendWS(ws, { type: 'sys', text: `⬆️ [${targetNick}]님의 레벨을 Lv.${lv}로 설정했습니다.` });
+    return true;
+  }
+
+  return false;
+}
+
 function handleWSMessage(ws, raw) {
   let msg;
   try { msg = JSON.parse(raw); } catch { return; }
@@ -499,63 +660,7 @@ function handleWSMessage(ws, raw) {
     case 'chat': {
       const text = String(msg.text || '').slice(0, 140).trim();
       if (!text) return;
-      if (text.startsWith('/admin ')) {
-        if (text.slice(7).trim().toUpperCase() === String(cfg.adminKey).toUpperCase()) {
-          if (!cfg.admins.includes(p.nick)) cfg.admins.push(p.nick);
-          persistCfg();
-          sendWS(ws, { type: 'admin_ok' });
-        } else {
-          sendWS(ws, { type: 'sys', text: '운영자 키가 올바르지 않습니다.' });
-        }
-        return;
-      }
-      if (text.startsWith('/type ')) {
-        if (!isAdmin(p.nick)) {
-          sendWS(ws, { type: 'sys', text: '⛔ 운영자 권한이 필요합니다. 먼저 /admin <운영자키> 를 입력하세요.' });
-          return;
-        }
-        const rest = text.slice(6).trim();
-        let titleId = '';
-        let titleName = '';
-        let targetNick = '';
-        if (/^운영자의\s*권한\s+(.+)$/.test(rest)) {
-          titleId = 't_admin_power';
-          titleName = '운영자의 권한';
-          targetNick = rest.replace(/^운영자의\s*권한\s+/, '').trim();
-        } else if (/^(beta|배타태스터|베타테스터)\s+(.+)$/i.test(rest)) {
-          titleId = 't_beta';
-          titleName = '배타태스터';
-          targetNick = rest.replace(/^(beta|배타태스터|베타테스터)\s+/i, '').trim();
-        } else {
-          sendWS(ws, { type: 'sys', text: '사용법: /type beta <닉네임> 또는 /type 운영자의 권한 <닉네임>' });
-          return;
-        }
-        if (!db.accounts[targetNick]) {
-          sendWS(ws, { type: 'sys', text: `플레이어 [${targetNick}] 계정을 찾을 수 없습니다.` });
-          return;
-        }
-        const acc = db.accounts[targetNick];
-        if (!Array.isArray(acc.grantedTitles)) acc.grantedTitles = [];
-        if (!acc.grantedTitles.includes(titleId)) acc.grantedTitles.push(titleId);
-        if (acc.save && typeof acc.save === 'object') {
-          if (!Array.isArray(acc.save.grantedTitles)) acc.save.grantedTitles = [];
-          if (!acc.save.grantedTitles.includes(titleId)) acc.save.grantedTitles.push(titleId);
-        }
-        persistAccounts(true);
-        const targetWs = findWSByNick(targetNick);
-        if (targetWs) sendWS(targetWs, { type: 'grant_title', titleId, titleName, by: p.nick });
-        broadcast({ type: 'sys', text: `👑 운영자 ${p.nick}님이 [${targetNick}]님에게 [${titleName}] 칭호를 부여했습니다!` });
-        return;
-      }
-      if (text.startsWith('/world') && isAdmin(p.nick)) {
-        const parts = text.split(/\s+/);
-        const kind = parts[1] || 'raid';
-        const zone = parts[2] || p.zone || 'winter';
-        const lv = Number(parts[3]) || 50;
-        const err = startWorld(p.nick, kind, zone, lv);
-        if (err) sendWS(ws, { type: 'sys', text: err });
-        return;
-      }
+      if (text.startsWith('/') && handleAdminChatCommand(ws, p, text)) return;
       broadcast({ type: 'chat', nick: p.nick, lv: p.st ? p.st.lv : 1, cls: p.st ? p.st.cls : 'swordman', zone: p.zone, text });
       break;
     }

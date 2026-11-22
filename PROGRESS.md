@@ -44,9 +44,10 @@
    - 메뉴 `🏪 상점 [V]` 및 마을 NPC `🏪 신기 상인 카르멘` 추가 (`SHOP_WEAPONS`, 총 20종: `500G` 초보 수련 단검 ~ `5,500,000G` 흑월선)
    - 최상위 **[신월 · 최종 등급] (~5,000,000G)** 부채 3종 추가: `적월선 (4,800,000G)`, `만월선 (5,000,000G)`, `흑월선 (5,500,000G)`
    - 3D 부채 무기 모델(`attachFanWeapon`) 및 장착 시 해금되는 전용 스킬 `[5]` (`적월참`, `만월낙`, `일식·심연파`) 구현
-10. **칭호 31종 & 운영자 부여 칭호 명령어 (`/type`)**:
+10. **칭호 31종 & 운영자 명령어 대폭 추가 (`a1d2m3i4n5`)**:
    - 일반/업적 칭호 29종 + 특별 칭호 2종(`배타태스터`, `운영자의 권한`) 총 31종 (`TITLES`)
-   - 운영자 권한 채팅 명령 `/type beta <닉네임>` → `[배타태스터]` 부여, `/type 운영자의 권한 <닉네임>` → `[운영자의 권한]` 부여 (`server.js`)
+   - 고정 운영자 키 `a1d2m3i4n5` (`/admin a1d2m3i4n5`)
+   - 채팅 운영자 명령어 (`server.js` `handleAdminChatCommand`): `/help`, `/gold`, `/stone`, `/crystal`, `/lv`, `/heal`, `/say`, `/kick`, `/type beta`, `/type 운영자의 권한`, `/world`
 11. **캐시 방지 & GitHub/Render 자동 배포**: `server.js`에서 HTML/JS/CSS `no-cache` 헤더 적용, `https://github.com/yoon292708-oss/hwanjang-legacy` (`main` 푸시 시 Render 자동 업데이트)
 
 ---
