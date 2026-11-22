@@ -367,6 +367,7 @@ export class WorldBuilder {
 
     const npcDefs = [
       { id: 'quest', name: '📜 길드장 엘린 (퀘스트)', path: 'npc_f/Adventurer.glb', x: -10, z: -8, rotY: 0.5, action: 'openQuest' },
+      { id: 'shop', name: '🏪 신기 상인 카르멘', path: 'npc_f/Formal.glb', tint: 0xfde047, x: -14, z: 11, rotY: 2.3, action: 'openShop' },
       { id: 'upgrade', name: '⚒️ 대장장이 볼칸', path: 'npc_m/Worker.glb', x: 13, z: -5, rotY: -0.6, action: 'openUpgrade' },
       { id: 'dungeon', name: '🌀 차원 안내인 세라', path: 'npc_f/Witch.glb', x: 14, z: 8, rotY: -1.1, action: 'openDungeon' },
       { id: 'market', name: '💎 거래소 상인 리나', path: 'npc_f/Casual.glb', x: 10, z: 13, rotY: -2.4, action: 'openMarket' },

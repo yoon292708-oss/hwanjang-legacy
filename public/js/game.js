@@ -2,11 +2,11 @@
 //  game.js - 환장 래거시 3D 웹 MMORPG 메인 클라이언트
 // =============================================================
 import * as THREE from 'three';
-import { instance, playAnim, attachWeapon } from './assets.js';
+import { instance, playAnim, attachWeapon, attachFanWeapon } from './assets.js';
 import { SFX } from './audio.js';
 import {
   CLASSES, CLASS_ORDER, HERO_WEAPON_HIDE, EQUIP_GRADES, ZONES, REGIONS,
-  getRegionAt, TITLES, QUESTS, SIDE_QUESTS, COUPONS, SKILL_REQ_LEVELS, TRAINERS,
+  getRegionAt, TITLES, QUESTS, SIDE_QUESTS, COUPONS, SKILL_REQ_LEVELS, TRAINERS, SHOP_WEAPONS,
 } from './data.js';
 import { WorldBuilder, getTerrainY, resolveWorldCollisions } from './world.js';
 import { VFXManager, MonsterManager } from './combat.js';
@@ -69,6 +69,8 @@ const state = {
   classQuestProgs: {},
   killCounts: {},
   claimedSideQuests: [],
+  shopWeapon: null,
+  ownedWeapons: [],
 };
 
 function expNeeded(lv) {
@@ -84,18 +86,24 @@ function currentTitle() {
 function currentGrade() {
   return EQUIP_GRADES[state.equipGrade] || EQUIP_GRADES[0];
 }
+function currentShopWeapon() {
+  return SHOP_WEAPONS.find((w) => w.id === state.shopWeapon) || null;
+}
 
 function calcStats() {
   const c = currentClass();
   const t = currentTitle();
   const g = currentGrade();
+  const sw = currentShopWeapon();
   const lvScale = 1 + (state.level - 1) * 0.16;
   const enhMult = 1 + state.enh * 0.14;
   const partyMult = myParty && myParty.members.length > 1 ? 1.15 : 1.0;
+  const swAtkMult = 1 + (sw?.atkBonusPct || 0);
+  const swHpMult = 1 + (sw?.hpBonusPct || 0);
 
-  const atk = Math.floor((c.baseAtk * lvScale * g.mult * enhMult + t.atkBonus) * partyMult);
-  const maxHp = Math.floor((c.baseHp * lvScale * (1 + state.equipGrade * 0.25 + state.enh * 0.06)) + t.hpBonus);
-  const crit = Math.min(0.75, 0.1 + (c.critBonus || 0) + state.enh * 0.01);
+  const atk = Math.floor((c.baseAtk * lvScale * g.mult * enhMult * swAtkMult + t.atkBonus) * partyMult);
+  const maxHp = Math.floor((c.baseHp * lvScale * (1 + state.equipGrade * 0.25 + state.enh * 0.06) * swHpMult) + t.hpBonus);
+  const crit = Math.min(0.95, 0.1 + (c.critBonus || 0) + state.enh * 0.01 + (sw?.critBonus || 0));
   return { atk, maxHp, crit };
 }
 
@@ -147,6 +155,7 @@ const player = {
   dead: false, respawnTimer: 0,
   atkCd: 0,
   cds: [0, 0, 0, 0],
+  weaponSkillCd: 0,
   dashCd: 0, dashTimer: 0, invulnTimer: 0,
   guardActive: false, guardTimer: 0, parryWindow: 0,
   healCd: 0,
@@ -179,7 +188,11 @@ async function rebuildPlayerModel() {
     player.inst = inst;
     player.root.add(inst.root);
     playAnim(inst, ['idle']);
-    if (c.weapon) {
+    const sw = currentShopWeapon();
+    if (sw) {
+      if (sw.isFan) attachFanWeapon(inst, { color: sw.color, rimColor: sw.rimColor });
+      else await attachWeapon(inst, sw.model, { size: 1.15, tint: sw.color, emissive: sw.color });
+    } else if (c.weapon) {
       await attachWeapon(inst, c.weapon, { size: 1.05, emissive: state.equipGrade >= 2 ? c.color : undefined });
     }
   } catch {
@@ -237,8 +250,9 @@ async function upsertRemotePlayer(nick, st) {
   rp.nameEl.textContent = `Lv.${st.lv} ${nick} (${cName})${pvpTag}`;
   rp.hpFill.style.width = `${Math.max(0, Math.min(100, (st.hp / Math.max(1, st.mhp)) * 100))}%`;
 
-  if (rp.clsLoaded !== st.cls) {
+  if (rp.clsLoaded !== st.cls || rp.shopWepLoaded !== (st.shopWep || '')) {
     rp.clsLoaded = st.cls;
+    rp.shopWepLoaded = st.shopWep || '';
     while (rp.root.children.length) rp.root.remove(rp.root.children[0]);
     const c = CLASSES[st.cls] || CLASSES.swordman;
     try {
@@ -247,7 +261,11 @@ async function upsertRemotePlayer(nick, st) {
       rp.inst = inst;
       rp.root.add(inst.root);
       playAnim(inst, ['idle']);
-      if (c.weapon) attachWeapon(inst, c.weapon, { size: 1.0 });
+      const sw = SHOP_WEAPONS.find((w) => w.id === st.shopWep);
+      if (sw) {
+        if (sw.isFan) attachFanWeapon(inst, { color: sw.color, rimColor: sw.rimColor });
+        else attachWeapon(inst, sw.model, { size: 1.1, tint: sw.color, emissive: sw.color });
+      } else if (c.weapon) attachWeapon(inst, c.weapon, { size: 1.0 });
     } catch {}
   }
 }
@@ -869,6 +887,58 @@ function doSkill(idx) {
   }
 }
 
+function doExclusiveWeaponSkill() {
+  if (player.dead) return;
+  const sw = currentShopWeapon();
+  const sk = sw?.exclusiveSkill;
+  if (!sk) {
+    showToast('🔒 [5]번 전용 스킬은 상점에서 최상위 [신월] 등급 무기(적월선·만월선·흑월선)를 장착해야 사용 가능합니다!');
+    return;
+  }
+  if (player.weaponSkillCd > 0) return;
+  player.weaponSkillCd = sk.cd;
+
+  const stats = calcStats();
+  const isCrit = Math.random() < stats.crit + 0.2;
+  const dmg = stats.atk * sk.mult * (isCrit ? 1.85 : 1.0);
+  if (player.inst) playAnim(player.inst, ['2H_Melee_Attack_Spin', 'Spellcast_Shoot', currentClass().animAttack], { loop: false, speed: 1.35 });
+  SFX.skill();
+  sendRemoteAction('s5', player.x, player.z);
+
+  const fx = Math.sin(player.ry);
+  const fz = Math.cos(player.ry);
+  // 5갈래 달빛 검풍 발사 + 주변/전방 거대 달빛 낙하 폭발
+  for (let a = -2; a <= 2; a++) {
+    const ang = player.ry + a * 0.22;
+    vfx.spawnProjectile({
+      x: player.x, y: player.y, z: player.z,
+      vx: Math.sin(ang) * 32, vz: Math.cos(ang) * 32,
+      radius: 0.78, color: sk.color, dur: 1.45, pierce: true,
+      onHit: (m) => damageMob(m, dmg * 0.55, isCrit, sk.stun || 1.8),
+    });
+  }
+  const nearest = findNearestMob(18);
+  const tx = nearest ? nearest.x : player.x + fx * 6;
+  const tz = nearest ? nearest.z : player.z + fz * 6;
+  const ty = getTerrainY(player.zone, tx, tz);
+  vfx.meteor(tx, ty, tz, sk.range || 11.0, sk.color, () => {
+    SFX.hit(true);
+    for (const m of monsterMgr.mobs) {
+      if (!m.dead && Math.hypot(m.x - tx, m.z - tz) <= (sk.range || 11.0) + (m.hitRadius || 1)) {
+        damageMob(m, dmg, isCrit, sk.stun || 2.5);
+      }
+    }
+    hitPvpTargets(tx, tz, sk.range || 11.0, Math.floor(dmg));
+  });
+  if (sk.healPct) {
+    const heal = Math.floor(player.maxHp * sk.healPct);
+    player.hp = Math.min(player.maxHp, player.hp + heal);
+    SFX.heal();
+    vfx.popupText(new THREE.Vector3(player.x, player.y, player.z), `+${heal} HP`, 'heal', camera);
+  }
+  showToast(`🌙 전용 스킬 [${sk.name}] 발동!`);
+}
+
 function doDash() {
   if (player.dead || player.dashCd > 0) return;
   player.dashCd = 2.6;
@@ -978,9 +1048,105 @@ $('modal-backdrop').onclick = (e) => { if (e.target === $('modal-backdrop')) clo
 function openModalByAction(act, trainerId = null) {
   if (act === 'openClass' && trainerId) openTrainerModal(trainerId);
   else if (act === 'openQuest') openQuestModal();
+  else if (act === 'openShop') openShopModal();
   else if (act === 'openUpgrade') openUpgradeModal();
   else if (act === 'openDungeon') openDungeonModal();
   else if (act === 'openMarket') openMarketModal();
+}
+
+function openShopModal() {
+  const sw = currentShopWeapon();
+  const owned = Array.isArray(state.ownedWeapons) ? state.ownedWeapons : [];
+  const rows = SHOP_WEAPONS.map((w) => {
+    const isOwned = owned.includes(w.id);
+    const isEq = state.shopWeapon === w.id;
+    const canBuy = state.gold >= w.price;
+    const atkPct = Math.round((w.atkBonusPct || 0) * 100);
+    const hpPct = Math.round((w.hpBonusPct || 0) * 100);
+    const critPct = Math.round((w.critBonus || 0) * 100);
+    const skBox = w.exclusiveSkill
+      ? `<div class="skill-mini" style="border-left-color:${w.tierColor}"><b>✨ 전용 스킬 [5] ${w.exclusiveSkill.name}</b> (${w.exclusiveSkill.cd}s) · ${w.exclusiveSkill.desc}</div>`
+      : '';
+    let btnHtml = '';
+    if (isEq) btnHtml = `<button class="btn sec" data-unequip-wep="${w.id}">✅ 장착 중 (해제)</button>`;
+    else if (isOwned) btnHtml = `<button class="btn primary" data-equip-wep="${w.id}">🔄 장착하기</button>`;
+    else btnHtml = `<button class="btn ${canBuy ? 'accent' : 'sec'}" data-buy-wep="${w.id}">🪙 ${w.price.toLocaleString()}G 구매</button>`;
+
+    return `
+      <div class="cls-card ${isEq ? 'active' : ''}" style="--cls-col:${w.tierColor}">
+        <div class="item-title" style="color:${w.tierColor}">
+          <span>${w.icon} ${w.name}</span>
+          <span class="tier-tag ${w.exclusiveSkill ? 's' : ''}">${w.tier}</span>
+        </div>
+        <div class="item-desc">${w.desc}</div>
+        <div class="stat-pills">
+          <span class="stat-pill">⚔️ 공격 +${atkPct}%</span>
+          <span class="stat-pill">❤️ 체력 +${hpPct}%</span>
+          <span class="stat-pill">💥 치명 +${critPct}%</span>
+        </div>
+        ${skBox}
+        <div class="cls-foot">${btnHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  const banner = `
+    <div class="class-hero-banner">
+      <div class="class-hero-main">
+        <div class="class-hero-icon">${sw ? sw.icon : '🏪'}</div>
+        <div>
+          <div style="font-size:15px;font-weight:800;color:${sw ? sw.tierColor : '#38bdf8'}">${sw ? `현재 장착 신기: ${sw.name} (${sw.tier})` : '기본 직업 무기 사용 중'}</div>
+          <div class="item-desc">최종 [신월] 등급 무기(적월선·만월선·흑월선)를 장착하면 <b>[5]번 전용 스킬</b>이 해금됩니다!</div>
+        </div>
+      </div>
+      <div style="font-size:15px;font-weight:800;color:#facc15">보유 골드: 🪙 ${state.gold.toLocaleString()}G</div>
+    </div>
+  `;
+
+  openModal('🏪 신기 무기 상점 — 적월선 · 만월선', `${banner}<div class="card-grid">${rows}</div>`);
+
+  const refreshAfterWeaponChange = async () => {
+    await rebuildPlayerModel();
+    const st = calcStats();
+    player.maxHp = st.maxHp;
+    player.hp = Math.min(player.hp, st.maxHp);
+    updateHUD();
+    saveGame();
+    openShopModal();
+  };
+
+  $('modal-body').querySelectorAll('[data-buy-wep]').forEach((b) => {
+    b.onclick = async () => {
+      const w = SHOP_WEAPONS.find((x) => x.id === b.dataset.buyWep);
+      if (!w) return;
+      if (state.gold < w.price) {
+        showToast(`골드가 부족합니다! (필요: ${w.price.toLocaleString()}G)`);
+        return;
+      }
+      state.gold -= w.price;
+      if (!Array.isArray(state.ownedWeapons)) state.ownedWeapons = [];
+      if (!state.ownedWeapons.includes(w.id)) state.ownedWeapons.push(w.id);
+      state.shopWeapon = w.id;
+      SFX.levelUp();
+      showToast(`✨ [${w.name}] 구매 및 장착 완료!${w.exclusiveSkill ? ` ([5] ${w.exclusiveSkill.name} 해금!)` : ''}`);
+      await refreshAfterWeaponChange();
+    };
+  });
+  $('modal-body').querySelectorAll('[data-equip-wep]').forEach((b) => {
+    b.onclick = async () => {
+      state.shopWeapon = b.dataset.equipWep;
+      SFX.skill();
+      showToast(`⚔️ [${currentShopWeapon()?.name}] 장착 완료!`);
+      await refreshAfterWeaponChange();
+    };
+  });
+  $('modal-body').querySelectorAll('[data-unequip-wep]').forEach((b) => {
+    b.onclick = async () => {
+      state.shopWeapon = null;
+      showToast('기본 직업 무기로 전환했습니다.');
+      await refreshAfterWeaponChange();
+    };
+  });
 }
 
 function openQuestModal() {
@@ -1563,13 +1729,18 @@ function updateHUD() {
   $('cur-gold').textContent = state.gold.toLocaleString();
   $('cur-stone').textContent = state.stone.toLocaleString();
   $('cur-crystal').textContent = state.crystal.toLocaleString();
-  $('hud-equip').textContent = `${g.name} +${state.enh}`;
-  $('hud-equip').style.color = g.color;
+  const sw = currentShopWeapon();
+  $('hud-equip').textContent = sw ? `${g.name}+${state.enh} · ${sw.icon}${sw.name}` : `${g.name} +${state.enh}`;
+  $('hud-equip').style.color = sw ? sw.tierColor : g.color;
 
   $('s1-name').textContent = c.skills[0].name;
   $('s2-name').textContent = c.skills[1].name;
   $('s3-name').textContent = c.skills[2].name;
   $('s4-name').textContent = c.skills[3]?.name || '필살기';
+  $('s5-name').textContent = sw?.exclusiveSkill ? sw.exclusiveSkill.name : '전용스킬';
+  const s5Locked = !sw?.exclusiveSkill;
+  if ($('slot-s5')) $('slot-s5').classList.toggle('locked', s5Locked);
+  if ($('s5-lock')) $('s5-lock').classList.toggle('hidden', !s5Locked);
 
   for (let i = 1; i < 4; i++) {
     const locked = state.level < (SKILL_REQ_LEVELS[i] || 1);
@@ -1656,6 +1827,7 @@ function updateCooldownsUI() {
   setCd('s2-cd', player.cds[1]);
   setCd('s3-cd', player.cds[2]);
   setCd('s4-cd', player.cds[3]);
+  setCd('s5-cd', player.weaponSkillCd);
   setCd('dash-cd', player.dashCd);
   setCd('heal-cd', player.healCd);
   $('guard-active').classList.toggle('hidden', !player.guardActive);
@@ -1820,12 +1992,14 @@ window.addEventListener('keydown', (e) => {
   if (k === '2') doSkill(1);
   if (k === '3') doSkill(2);
   if (k === '4') doSkill(3);
+  if (k === '5') doExclusiveWeaponSkill();
   if (k === 'q') doDash();
   if (k === 'f') doGuard();
   if (k === 'r') doHeal();
   if (k === 'e') doInteract();
   if (k === 'z') toggleAutoHunt();
   if (k === 'l') openQuestModal();
+  if (k === 'v') openShopModal();
   if (k === 'u') openUpgradeModal();
   if (k === 'b') openDungeonModal();
   if (k === 'm') openMapModal();
@@ -1870,6 +2044,7 @@ function triggerAct(act) {
   else if (act === 's2') doSkill(1);
   else if (act === 's3') doSkill(2);
   else if (act === 's4') doSkill(3);
+  else if (act === 's5') doExclusiveWeaponSkill();
   else if (act === 'dash') doDash();
   else if (act === 'guard') doGuard();
   else if (act === 'heal') doHeal();
@@ -1944,6 +2119,7 @@ function toggleAutoHunt() {
 }
 $('btn-auto').onclick = toggleAutoHunt;
 $('btn-open-quest').onclick = openQuestModal;
+$('btn-open-shop').onclick = openShopModal;
 $('quest-panel').onclick = (e) => { if (e.target !== $('btn-daily-claim')) openQuestModal(); };
 $('hud-class').style.cursor = 'pointer';
 $('hud-class').title = '해금한 직업 전환';
@@ -2151,6 +2327,8 @@ function serializeSave() {
     classQuestProgs: state.classQuestProgs,
     killCounts: state.killCounts,
     claimedSideQuests: state.claimedSideQuests,
+    shopWeapon: state.shopWeapon,
+    ownedWeapons: state.ownedWeapons,
   };
 }
 
@@ -2162,6 +2340,7 @@ function applySave(s) {
   if (!state.classQuestProgs || typeof state.classQuestProgs !== 'object') state.classQuestProgs = {};
   if (!state.killCounts || typeof state.killCounts !== 'object') state.killCounts = {};
   if (!Array.isArray(state.claimedSideQuests)) state.claimedSideQuests = [];
+  if (!Array.isArray(state.ownedWeapons)) state.ownedWeapons = [];
 }
 
 async function saveGame(keepalive = false) {
@@ -2372,7 +2551,7 @@ function animate(now) {
         st: {
           zone: player.zone, x: +player.x.toFixed(2), y: +player.y.toFixed(2), z: +player.z.toFixed(2),
           ry: +player.ry.toFixed(2), an: player.inst?.currentKey || 'Idle',
-          lv: state.level, cls: state.cls, title: state.title,
+          lv: state.level, cls: state.cls, title: state.title, shopWep: state.shopWeapon,
           hp: Math.ceil(player.hp), mhp: player.maxHp,
           grade: state.equipGrade, enh: state.enh, pvpOn: player.pvpOn, dead: player.dead,
         },
@@ -2390,6 +2569,7 @@ function updatePlayer(dt) {
   if (player.inst?.mixer) player.inst.mixer.update(dt);
   if (player.atkCd > 0) player.atkCd -= dt;
   for (let i = 0; i < 4; i++) if (player.cds[i] > 0) player.cds[i] -= dt;
+  if (player.weaponSkillCd > 0) player.weaponSkillCd -= dt;
   if (player.dashCd > 0) player.dashCd -= dt;
   if (player.healCd > 0) player.healCd -= dt;
   if (player.invulnTimer > 0) player.invulnTimer -= dt;
@@ -2460,7 +2640,8 @@ function updatePlayer(dt) {
         player.z += (dz / dist) * c.moveSpd * dt;
         moving = true;
       } else {
-        if (state.level >= SKILL_REQ_LEVELS[3] && player.cds[3] <= 0) doSkill(3);
+        if (currentShopWeapon()?.exclusiveSkill && player.weaponSkillCd <= 0) doExclusiveWeaponSkill();
+        else if (state.level >= SKILL_REQ_LEVELS[3] && player.cds[3] <= 0) doSkill(3);
         else if (state.level >= SKILL_REQ_LEVELS[2] && player.cds[2] <= 0) doSkill(2);
         else if (state.level >= SKILL_REQ_LEVELS[1] && player.cds[1] <= 0) doSkill(1);
         else if (player.cds[0] <= 0) doSkill(0);

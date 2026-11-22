@@ -274,6 +274,45 @@ export async function attachWeapon(inst, itemPath, opts = {}) {
   }
 }
 
+export function attachFanWeapon(inst, opts = {}) {
+  if (!inst) return null;
+  const col = opts.color ?? 0xef4444;
+  const rimCol = opts.rimColor ?? 0xfacc15;
+  const fan = new THREE.Group();
+
+  const ribMat = new THREE.MeshStandardMaterial({ color: rimCol, metalness: 0.4, roughness: 0.35, emissive: rimCol, emissiveIntensity: 0.25 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, metalness: 0.15, emissive: col, emissiveIntensity: 0.55, side: THREE.DoubleSide });
+
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), ribMat);
+  handle.position.y = 0.12;
+  fan.add(handle);
+
+  const count = 7;
+  for (let i = 0; i < count; i++) {
+    const ang = ((i - (count - 1) / 2) / ((count - 1) / 2)) * 0.92;
+    const rib = new THREE.Group();
+    rib.position.y = 0.22;
+    rib.rotation.z = ang;
+    const stick = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.72, 0.02), ribMat);
+    stick.position.y = 0.36;
+    const petal = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.56, 0.015), leafMat);
+    petal.position.y = 0.44;
+    rib.add(stick);
+    rib.add(petal);
+    fan.add(rib);
+  }
+
+  const sc = (1.15 / (inst.scale || 1));
+  fan.scale.setScalar(sc);
+  fan.rotation.set(Math.PI * 0.38, 0, 0);
+  fan.position.set(0, 0.06, 0.04);
+
+  const hand = findBone(inst.model, ['handr', 'hand_r', 'handslotr', 'righthand']);
+  if (hand) hand.add(fan);
+  else { fan.position.set(0.5, 1.1, 0.3); inst.root.add(fan); }
+  return fan;
+}
+
 export async function staticParts(path) {
   const g = await loadGLB(path);
   const url = path.startsWith('.') || path.startsWith('/') ? path : BASE + path;

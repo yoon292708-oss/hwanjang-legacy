@@ -62,7 +62,7 @@
         <span><b>Space</b> 점프</span>
         <span><b>우드래그</b> 시점회전</span>
         <span><b>좌클릭</b> 기본공격</span>
-        <span><b>1 / 2 / 3 / 4</b> 직업 스킬</span>
+        <span><b>1~4</b> 직업 스킬 · <b>5</b> 전용기</span>
         <span><b>Q</b> 대시</span>
         <span><b>F</b> 가드·패링</span>
         <span><b>R</b> 회복</span>
@@ -142,6 +142,7 @@
       <div class="menu-btns">
         <button id="btn-auto" class="btn-menu">🤖 자동 <kbd>Z</kbd></button>
         <button id="btn-open-quest" class="btn-menu">📜 퀘스트 <kbd>L</kbd></button>
+        <button id="btn-open-shop" class="btn-menu">🏪 상점 <kbd>V</kbd></button>
         <button id="btn-open-upgrade" class="btn-menu">⚒️ 강화 <kbd>U</kbd></button>
         <button id="btn-open-dungeon" class="btn-menu">🌀 던전 <kbd>B</kbd></button>
         <button id="btn-open-map" class="btn-menu">🗺️ 맵 <kbd>M</kbd></button>
@@ -180,6 +181,7 @@
       <div id="slot-s2" class="skill-slot clickable" data-act="s2"><div class="slot-key">2</div><div id="s2-name" class="slot-name">스킬2</div><div id="s2-cd" class="cd-overlay hidden"></div><div id="s2-lock" class="lock-overlay hidden">🔒 Lv.3</div></div>
       <div id="slot-s3" class="skill-slot clickable" data-act="s3"><div class="slot-key">3</div><div id="s3-name" class="slot-name">스킬3</div><div id="s3-cd" class="cd-overlay hidden"></div><div id="s3-lock" class="lock-overlay hidden">🔒 Lv.7</div></div>
       <div id="slot-s4" class="skill-slot clickable" data-act="s4"><div class="slot-key">4</div><div id="s4-name" class="slot-name">필살기</div><div id="s4-cd" class="cd-overlay hidden"></div><div id="s4-lock" class="lock-overlay hidden">🔒 Lv.12</div></div>
+      <div id="slot-s5" class="skill-slot clickable" data-act="s5"><div class="slot-key">5</div><div id="s5-name" class="slot-name">전용스킬</div><div id="s5-cd" class="cd-overlay hidden"></div><div id="s5-lock" class="lock-overlay hidden">🔒 신월무기</div></div>
       <div class="skill-slot clickable" data-act="dash"><div class="slot-key">Q</div><div class="slot-name">대시</div><div id="dash-cd" class="cd-overlay hidden"></div></div>
       <div class="skill-slot clickable" data-act="guard"><div class="slot-key">F</div><div class="slot-name">가드/패링</div><div id="guard-active" class="guard-glow hidden"></div></div>
       <div class="skill-slot clickable" data-act="heal"><div class="slot-key">R</div><div class="slot-name">회복</div><div id="heal-cd" class="cd-overlay hidden"></div></div>
@@ -194,6 +196,7 @@
         <button class="mob-btn" data-act="s2">2</button>
         <button class="mob-btn" data-act="s3">3</button>
         <button class="mob-btn" data-act="s4">4</button>
+        <button class="mob-btn" data-act="s5">5</button>
         <button class="mob-btn" data-act="dash">Q</button>
         <button class="mob-btn" data-act="guard">F</button>
         <button class="mob-btn" data-act="heal">R</button>
