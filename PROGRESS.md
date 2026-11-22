@@ -48,7 +48,9 @@
    - 일반/업적 칭호 29종 + 특별 칭호 2종(`배타태스터`, `운영자의 권한`) 총 31종 (`TITLES`)
    - 고정 운영자 키 `a1d2m3i4n5` (`/admin a1d2m3i4n5`)
    - 채팅 운영자 명령어 (`server.js` `handleAdminChatCommand`): `/help`, `/gold`, `/stone`, `/crystal`, `/lv`, `/heal`, `/say`, `/kick`, `/type beta`, `/type 운영자의 권한`, `/world`
-11. **캐시 방지 & GitHub/Render 자동 배포**: `server.js`에서 HTML/JS/CSS `no-cache` 헤더 적용, `https://github.com/yoon292708-oss/hwanjang-legacy` (`main` 푸시 시 Render 자동 업데이트)
+11. **3D 스킬 모델링 업그레이드 (`combat.js`, `game.js`)**:
+   - 평면 원/공 대신 **입체 3D 스킬 모델**(`buildProjectileModel`, `buildMeteorModel`) 적용: 3D 초승달 칼날(`crescent`), 3D 검기 날개(`blade`), 3D 화살(`arrow`), 3D 투창(`spear`), 3D 다중 궤도 오브(`orb`), 하늘에서 내리꽂히는 3D 거대 성검(`sword`) & 이중 고리 만월/운석(`moon`/`meteor`), 3D 솟아오르는 폭발 가시
+12. **캐시 방지 & GitHub/Render 자동 배포**: `server.js`에서 HTML/JS/CSS `no-cache` 헤더 적용, `https://github.com/yoon292708-oss/hwanjang-legacy` (`main` 푸시 시 Render 자동 업데이트)
 
 ---
 

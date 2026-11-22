@@ -5,6 +5,122 @@ import * as THREE from 'three';
 import { instance, playAnim } from './assets.js';
 import { getTerrainY } from './world.js';
 
+function vfxMat(color, opacity = 0.92, emissiveInt = 0.78) {
+  return new THREE.MeshStandardMaterial({
+    color,
+    emissive: color,
+    emissiveIntensity: emissiveInt,
+    roughness: 0.22,
+    metalness: 0.25,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+  });
+}
+
+function setGroupOpacity(obj, op) {
+  obj.traverse((ch) => {
+    if (ch.isMesh && ch.material) {
+      const base = ch.material.userData.baseOp ?? 0.92;
+      ch.material.opacity = base * Math.max(0, op);
+    }
+  });
+}
+
+function buildProjectileModel(shape, color, radius = 0.55) {
+  const g = new THREE.Group();
+  const s = Math.max(0.45, radius * 1.45);
+  const mk = (geo, col, op = 0.95, ei = 0.85) => {
+    const m = vfxMat(col, op, ei);
+    m.userData.baseOp = op;
+    return new THREE.Mesh(geo, m);
+  };
+
+  if (shape === 'crescent') {
+    const arc = mk(new THREE.TorusGeometry(s * 1.25, s * 0.16, 10, 24, Math.PI * 1.15), color, 0.96, 1.0);
+    arc.rotation.x = Math.PI / 2;
+    arc.rotation.z = -Math.PI * 0.08;
+    const inner = mk(new THREE.TorusGeometry(s * 0.95, s * 0.09, 8, 20, Math.PI * 0.95), 0xffffff, 0.88, 1.2);
+    inner.rotation.x = Math.PI / 2;
+    const gem = mk(new THREE.OctahedronGeometry(s * 0.34, 0), 0xfef08a, 0.95, 1.1);
+    g.add(arc, inner, gem);
+  } else if (shape === 'blade') {
+    const wing = mk(new THREE.TorusGeometry(s * 1.05, s * 0.15, 8, 18, Math.PI * 0.88), color, 0.95, 0.9);
+    wing.rotation.x = Math.PI / 2;
+    wing.rotation.z = Math.PI * 0.06;
+    const core = mk(new THREE.ConeGeometry(s * 0.26, s * 1.9, 6), 0xffffff, 0.9, 1.1);
+    core.rotation.x = Math.PI / 2;
+    g.add(wing, core);
+  } else if (shape === 'arrow') {
+    const shaft = mk(new THREE.CylinderGeometry(s * 0.07, s * 0.07, s * 2.1, 8), 0xfef08a, 0.95, 0.7);
+    shaft.rotation.x = Math.PI / 2;
+    const tip = mk(new THREE.ConeGeometry(s * 0.24, s * 0.65, 6), color, 0.98, 1.0);
+    tip.rotation.x = Math.PI / 2;
+    tip.position.z = s * 1.15;
+    const ring = mk(new THREE.TorusGeometry(s * 0.32, s * 0.05, 6, 16), color, 0.85, 0.9);
+    ring.position.z = -s * 0.5;
+    g.add(shaft, tip, ring);
+  } else if (shape === 'spear') {
+    const pole = mk(new THREE.CylinderGeometry(s * 0.08, s * 0.08, s * 2.5, 8), 0xe2e8f0, 0.92, 0.5);
+    pole.rotation.x = Math.PI / 2;
+    const head = mk(new THREE.ConeGeometry(s * 0.28, s * 0.95, 4), color, 0.98, 1.0);
+    head.rotation.x = Math.PI / 2;
+    head.position.z = s * 1.35;
+    const aura = mk(new THREE.TorusGeometry(s * 0.42, s * 0.07, 8, 18), color, 0.85, 0.95);
+    aura.position.z = s * 0.6;
+    g.add(pole, head, aura);
+  } else {
+    // 'orb'
+    const core = mk(new THREE.OctahedronGeometry(s * 0.65, 1), color, 0.96, 1.0);
+    const r1 = mk(new THREE.TorusGeometry(s * 0.95, s * 0.08, 8, 22), 0xffffff, 0.88, 1.1);
+    const r2 = mk(new THREE.TorusGeometry(s * 1.1, s * 0.07, 8, 22), color, 0.82, 0.9);
+    r1.rotation.x = Math.PI / 3;
+    r2.rotation.y = Math.PI / 3;
+    g.add(core, r1, r2);
+  }
+  return g;
+}
+
+function buildMeteorModel(shape, color) {
+  const g = new THREE.Group();
+  const mk = (geo, col, op = 0.96, ei = 0.9) => {
+    const m = vfxMat(col, op, ei);
+    m.userData.baseOp = op;
+    return new THREE.Mesh(geo, m);
+  };
+
+  if (shape === 'sword') {
+    // Giant 3D radiant sword plunging point-down
+    const blade = mk(new THREE.ConeGeometry(0.52, 4.4, 4), 0xf8fafc, 0.96, 1.05);
+    blade.rotation.x = Math.PI;
+    blade.position.y = 0.2;
+    const guard = mk(new THREE.BoxGeometry(2.1, 0.26, 0.42), color, 0.96, 0.9);
+    guard.position.y = 2.45;
+    const hilt = mk(new THREE.CylinderGeometry(0.16, 0.16, 1.1, 8), 0xfacc15, 0.95, 0.7);
+    hilt.position.y = 3.05;
+    const halo = mk(new THREE.TorusGeometry(1.45, 0.1, 8, 28), color, 0.9, 1.1);
+    halo.rotation.x = Math.PI / 2;
+    halo.position.y = 2.4;
+    g.add(blade, guard, hilt, halo);
+  } else if (shape === 'moon') {
+    const orb = mk(new THREE.SphereGeometry(1.55, 20, 20), color, 0.96, 1.05);
+    const r1 = mk(new THREE.TorusGeometry(2.3, 0.14, 10, 32), 0xffffff, 0.9, 1.15);
+    const r2 = mk(new THREE.TorusGeometry(2.75, 0.11, 10, 32), color, 0.85, 0.95);
+    r1.rotation.x = Math.PI * 0.36;
+    r2.rotation.x = -Math.PI * 0.36;
+    r2.rotation.y = Math.PI * 0.25;
+    g.add(orb, r1, r2);
+  } else {
+    const rock = mk(new THREE.DodecahedronGeometry(1.45, 0), color, 0.96, 0.9);
+    const ring1 = mk(new THREE.TorusGeometry(2.05, 0.14, 8, 24), 0xfef08a, 0.9, 1.1);
+    const ring2 = mk(new THREE.TorusGeometry(2.35, 0.1, 8, 24), color, 0.85, 0.95);
+    ring1.rotation.x = Math.PI / 2.6;
+    ring2.rotation.y = Math.PI / 2.6;
+    g.add(rock, ring1, ring2);
+  }
+  return g;
+}
+
 export class VFXManager {
   constructor(scene, damageLayer) {
     this.scene = scene;
@@ -24,49 +140,64 @@ export class VFXManager {
   }
 
   slashArc(x, y, z, yaw, color = 0x38bdf8, radius = 3.2) {
-    const geo = new THREE.RingGeometry(radius * 0.55, radius, 20, 1, -Math.PI * 0.45, Math.PI * 0.9);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(x, y + 1.0, z);
-    mesh.rotation.y = yaw - Math.PI * 0.5;
-    this.scene.add(mesh);
-    this.effects.push({ mesh, age: 0, dur: 0.24, type: 'slash' });
+    const g = new THREE.Group();
+    const m1 = vfxMat(color, 0.92, 0.9); m1.userData.baseOp = 0.92;
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.78, 0.16, 8, 24, Math.PI * 0.92), m1);
+    arc.rotation.x = Math.PI / 2;
+    arc.rotation.z = -Math.PI * 0.46;
+    const m2 = vfxMat(0xffffff, 0.85, 1.1); m2.userData.baseOp = 0.85;
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.9, 0.07, 6, 24, Math.PI * 0.86), m2);
+    rim.rotation.x = Math.PI / 2;
+    rim.rotation.z = -Math.PI * 0.43;
+    g.add(arc, rim);
+    g.position.set(x, y + 1.05, z);
+    g.rotation.y = yaw;
+    g.rotation.z = 0.22;
+    this.scene.add(g);
+    this.effects.push({ mesh: g, age: 0, dur: 0.26, type: 'slash', spinY: 2.2 });
   }
 
   ringBurst(x, y, z, radius = 5.0, color = 0x22d3ee) {
-    const geo = new THREE.RingGeometry(0.4, 0.9, 32);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(x, y + 0.15, z);
-    this.scene.add(mesh);
-    this.effects.push({ mesh, age: 0, dur: 0.42, type: 'burst', targetScale: radius });
+    const g = new THREE.Group();
+    const mk = (geo, col, op = 0.9) => { const m = vfxMat(col, op, 0.95); m.userData.baseOp = op; return new THREE.Mesh(geo, m); };
+    const torus = mk(new THREE.TorusGeometry(0.9, 0.12, 10, 32), color, 0.92);
+    torus.rotation.x = Math.PI / 2;
+    torus.position.y = 0.25;
+    g.add(torus);
+    const spikeGeo = new THREE.ConeGeometry(0.18, 1.25, 5);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const sp = mk(spikeGeo, i % 2 === 0 ? color : 0xffffff, 0.85);
+      sp.position.set(Math.cos(a) * 0.75, 0.6, Math.sin(a) * 0.75);
+      sp.rotation.z = -Math.cos(a) * 0.35;
+      sp.rotation.x = Math.sin(a) * 0.35;
+      g.add(sp);
+    }
+    g.position.set(x, y + 0.1, z);
+    this.scene.add(g);
+    this.effects.push({ mesh: g, age: 0, dur: 0.48, type: 'burst', targetScale: Math.max(2.5, radius * 0.9), spinY: 4.5 });
   }
 
-  meteor(tx, ty, tz, radius = 6.5, color = 0xf43f5e, onImpact = null) {
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(1.3, 14, 14),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 })
-    );
-    sphere.position.set(tx + 4, ty + 18, tz + 4);
-    this.scene.add(sphere);
+  meteor(tx, ty, tz, radius = 6.5, color = 0xf43f5e, onImpact = null, shape = 'meteor') {
+    const mesh = buildMeteorModel(shape, color);
+    mesh.position.set(shape === 'sword' ? tx : tx + 4, ty + 18, shape === 'sword' ? tz : tz + 4);
+    this.scene.add(mesh);
     this.effects.push({
-      mesh: sphere, age: 0, dur: 0.48, type: 'meteor',
-      startPos: sphere.position.clone(),
-      endPos: new THREE.Vector3(tx, ty + 0.8, tz),
+      mesh, age: 0, dur: 0.48, type: 'meteor',
+      startPos: mesh.position.clone(),
+      endPos: new THREE.Vector3(tx, ty + (shape === 'sword' ? 1.8 : 1.0), tz),
       radius, color, onImpact,
+      spinY: shape === 'sword' ? 6.0 : 3.2,
     });
   }
 
-  spawnProjectile({ x, y, z, vx, vz, radius = 0.45, color = 0x38bdf8, dur = 1.4, pierce = false, onHit }) {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 12, 12),
-      new THREE.MeshBasicMaterial({ color })
-    );
+  spawnProjectile({ x, y, z, vx, vz, radius = 0.45, color = 0x38bdf8, dur = 1.4, pierce = false, shape = 'orb', onHit }) {
+    const mesh = buildProjectileModel(shape, color, radius);
     mesh.position.set(x, y + 1.15, z);
+    mesh.rotation.y = Math.atan2(vx, vz);
     this.scene.add(mesh);
-    this.projectiles.push({ mesh, vx, vz, age: 0, dur, pierce, hitIds: new Set(), onHit });
+    const spin = shape === 'orb' || shape === 'crescent' ? 7.5 : 0;
+    this.projectiles.push({ mesh, vx, vz, age: 0, dur, pierce, hitIds: new Set(), spin, onHit });
   }
 
   spawnTelegraph(x, z, radius, duration, zoneId, onStrike) {
@@ -115,12 +246,13 @@ export class VFXManager {
       const e = this.effects[i];
       e.age += dt;
       const k = Math.min(1, e.age / e.dur);
+      if (e.spinY) e.mesh.rotation.y += e.spinY * dt;
       if (e.type === 'slash') {
-        e.mesh.scale.setScalar(0.9 + k * 0.45);
-        e.mesh.material.opacity = 1 - k;
+        e.mesh.scale.setScalar(0.85 + k * 0.5);
+        setGroupOpacity(e.mesh, 1 - k);
       } else if (e.type === 'burst') {
-        e.mesh.scale.setScalar(1 + k * (e.targetScale || 5));
-        e.mesh.material.opacity = (1 - k) * 0.85;
+        e.mesh.scale.setScalar(0.8 + k * (e.targetScale || 5));
+        setGroupOpacity(e.mesh, 1 - k);
       } else if (e.type === 'meteor') {
         e.mesh.position.lerpVectors(e.startPos, e.endPos, k);
         if (k >= 1) {
@@ -140,6 +272,7 @@ export class VFXManager {
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.z += p.vz * dt;
       p.mesh.position.y = getTerrainY(zoneId, p.mesh.position.x, p.mesh.position.z) + 1.15;
+      if (p.spin) p.mesh.rotation.y += p.spin * dt;
 
       let remove = p.age >= p.dur;
       for (const m of mobs) {

@@ -742,6 +742,19 @@ function sendRemoteAction(act, tx = 0, tz = 0) {
   if (ws && wsConnected) ws.send(JSON.stringify({ type: 'act', act, tx, tz }));
 }
 
+function inferProjShape(c, sk) {
+  if (c.id === 'ranger' || c.id === 'pirate') return 'arrow';
+  if (c.id === 'lancer' || (sk && sk.name.includes('창'))) return 'spear';
+  if (c.category === 'magic') return 'orb';
+  return 'blade';
+}
+
+function inferMeteorShape(c, sk) {
+  if (sk && (sk.name.includes('검') || sk.name.includes('엑스칼리버') || sk.name.includes('심판') || sk.name.includes('드래곤'))) return 'sword';
+  if (c.category === 'melee' || c.id === 'angel') return 'sword';
+  return 'meteor';
+}
+
 function doAttack() {
   if (player.dead || player.atkCd > 0) return;
   const c = currentClass();
@@ -762,6 +775,7 @@ function doAttack() {
       x: player.x, y: player.y, z: player.z,
       vx: dirX * 26, vz: dirZ * 26,
       color: c.color, dur: c.range / 26,
+      shape: inferProjShape(c, null),
       onHit: (m) => damageMob(m, dmg, isCrit),
     });
     hitPvpTargets(player.x + dirX * 5, player.z + dirZ * 5, 5.5, Math.floor(dmg));
@@ -806,23 +820,25 @@ function doSkill(idx) {
   const fz = Math.cos(player.ry);
 
   if (sk.type === 'proj') {
+    const pShape = inferProjShape(c, sk);
     for (let a = -1; a <= 1; a += 2) {
       const ang = player.ry + a * 0.08;
       vfx.spawnProjectile({
         x: player.x, y: player.y, z: player.z,
         vx: Math.sin(ang) * 28, vz: Math.cos(ang) * 28,
-        radius: 0.6, color: skColor, dur: 1.2, pierce: true,
+        radius: 0.6, color: skColor, dur: 1.2, pierce: true, shape: pShape,
         onHit: (m) => damageMob(m, dmg * 0.65, isCrit, sk.stun || 0),
       });
     }
     hitPvpTargets(player.x + fx * 6, player.z + fz * 6, 6.5, Math.floor(dmg));
   } else if (sk.type === 'barrage') {
+    const pShape = inferProjShape(c, sk);
     for (let a = -2; a <= 2; a++) {
       const ang = player.ry + a * 0.17;
       vfx.spawnProjectile({
         x: player.x, y: player.y, z: player.z,
         vx: Math.sin(ang) * 30, vz: Math.cos(ang) * 30,
-        radius: 0.55, color: skColor, dur: 1.35, pierce: true,
+        radius: 0.55, color: skColor, dur: 1.35, pierce: true, shape: pShape,
         onHit: (m) => damageMob(m, dmg * 0.45, isCrit, sk.stun || 0),
       });
     }
@@ -855,7 +871,7 @@ function doSkill(idx) {
         }
       }
       hitPvpTargets(tx, tz, sk.range || 7.0, Math.floor(dmg));
-    });
+    }, inferMeteorShape(c, sk));
   } else if (sk.type === 'summon' || sk.type === 'summon_aoe') {
     const count = sk.type === 'summon_aoe' ? 2 : 1;
     for (let i = 0; i < count; i++) {
@@ -908,13 +924,13 @@ function doExclusiveWeaponSkill() {
 
   const fx = Math.sin(player.ry);
   const fz = Math.cos(player.ry);
-  // 5갈래 달빛 검풍 발사 + 주변/전방 거대 달빛 낙하 폭발
+  // 5갈래 달빛 검풍 발사 + 주변/전방 거대 3D 달빛 낙하 폭발
   for (let a = -2; a <= 2; a++) {
     const ang = player.ry + a * 0.22;
     vfx.spawnProjectile({
       x: player.x, y: player.y, z: player.z,
       vx: Math.sin(ang) * 32, vz: Math.cos(ang) * 32,
-      radius: 0.78, color: sk.color, dur: 1.45, pierce: true,
+      radius: 0.78, color: sk.color, dur: 1.45, pierce: true, shape: 'crescent',
       onHit: (m) => damageMob(m, dmg * 0.55, isCrit, sk.stun || 1.8),
     });
   }
@@ -930,7 +946,7 @@ function doExclusiveWeaponSkill() {
       }
     }
     hitPvpTargets(tx, tz, sk.range || 11.0, Math.floor(dmg));
-  });
+  }, 'moon');
   if (sk.healPct) {
     const heal = Math.floor(player.maxHp * sk.healPct);
     player.hp = Math.min(player.maxHp, player.hp + heal);
