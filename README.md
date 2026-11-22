@@ -2,6 +2,9 @@
 
 사계절 오픈월드(마을·봄·대초원·여름·바다·사막·가을·고대 유적지·겨울·결투장) + 11종 직업 전직 + 던전 + 실시간 멀티플레이 3D 웹 MMORPG입니다.
 
+- **웹에서 바로 플레이**: https://hwanjang-legacy.onrender.com/ *(입장 비밀번호: `5090`)*
+- **작업 일지**: [PROGRESS.md](PROGRESS.md) 참고
+
 ## 로컬 실행
 ```bash
 node server.js
