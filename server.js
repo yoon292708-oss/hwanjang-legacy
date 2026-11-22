@@ -39,11 +39,14 @@ const db = loadJSON(ACC_FILE, { accounts: {}, tokens: {} });
 db.accounts = db.accounts || {};
 db.tokens = db.tokens || {};
 
+const FIXED_ADMIN_KEY = String(process.env.ODY_ADMIN_KEY || 'a1d2m3i4n5');
 const cfg = loadJSON(CFG_FILE, null) || {
-  adminKey: crypto.randomBytes(4).toString('hex').toUpperCase(),
+  adminKey: FIXED_ADMIN_KEY,
   admins: [],
   note: '채팅창에 /admin <adminKey> 입력 시 운영자 권한이 부여됩니다.',
 };
+cfg.adminKey = FIXED_ADMIN_KEY;
+cfg.admins = Array.isArray(cfg.admins) ? cfg.admins : [];
 fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2));
 
 const marketData = loadJSON(MKT_FILE, { nextId: 1, listings: [] });
