@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>환장 래거시 (Hwanjang Legacy) — 사계절 3D 오픈월드 MMORPG</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    if (/KAKAOTALK/i.test(navigator.userAgent)) {
+      location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
+    }
+  </script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three/three.module.js",
+        "three/addons/": "./lib/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-wrap"></div>
+  <div id="world-ui-layer"></div>
+  <div id="damage-layer"></div>
+
+  <!-- Start / Auth Overlay -->
+  <div id="start-overlay" class="overlay">
+    <div class="start-card">
+      <div class="badge">HWANJANG LEGACY · 사계절 3D 웹 MMORPG</div>
+      <h1>⚔️ 환장 래거시</h1>
+      <p class="subtitle">11종 전직 · 사계절 오픈월드 · 신기루/지하 던전 · 실시간 멀티 &amp; 월드 보스 레이드</p>
+
+      <div id="gate-section" class="gate-box">
+        <div class="gate-title">🔒 입장 비밀번호 4자리 입력</div>
+        <div class="gate-row">
+          <input id="gate-pin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••" autofocus />
+          <button id="btn-gate-unlock" class="btn primary">확인</button>
+        </div>
+        <div id="gate-err" class="auth-err"></div>
+      </div>
+
+      <div id="auth-section" class="hidden">
+        <div class="auth-tabs">
+          <button id="tab-login" class="auth-tab active">로그인</button>
+          <button id="tab-reg" class="auth-tab">회원가입</button>
+        </div>
+        <div class="auth-form">
+          <input id="auth-nick" type="text" maxlength="14" placeholder="닉네임 (한글/영문/숫자 2~14자)" />
+          <input id="auth-pw" type="password" maxlength="32" placeholder="비밀번호 (4자 이상)" />
+          <div id="auth-err" class="auth-err"></div>
+          <div class="auth-btns">
+            <button id="btn-auth-submit" class="btn primary big">로그인 및 대륙 입장</button>
+            <button id="btn-guest-start" class="btn accent">⚡ 빠른 게스트 체험</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls-box">
+        <span><b>WASD</b> 이동</span>
+        <span><b>Space</b> 점프</span>
+        <span><b>우드래그</b> 시점회전</span>
+        <span><b>좌클릭</b> 기본공격</span>
+        <span><b>1 / 2 / 3</b> 직업 스킬</span>
+        <span><b>Q</b> 대시</span>
+        <span><b>F</b> 가드·패링</span>
+        <span><b>R</b> 회복</span>
+        <span><b>E</b> 대화·포탈</span>
+        <span><b>Z</b> 자동사냥</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <!-- Top Left: Player Status -->
+    <div class="hud-panel top-left">
+      <div class="player-header">
+        <span id="hud-level" class="lv-badge">Lv.1</span>
+        <span id="hud-title" class="title-badge">[초보 모험가]</span>
+        <span id="hud-class" class="class-badge">검사</span>
+      </div>
+      <div class="nick-row">
+        <span id="hud-nick">모험가</span>
+        <button id="btn-pvp-toggle" class="pvp-pill off" title="필드 PvP 모드 전환">🕊️ 평화</button>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">HP</span>
+        <div class="bar-bg"><div id="hp-fill" class="bar-fill hp"></div><span id="hp-text" class="bar-text">150 / 150</span></div>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">EXP</span>
+        <div class="bar-bg sm"><div id="exp-fill" class="bar-fill exp"></div><span id="exp-text" class="bar-text sm">0%</span></div>
+      </div>
+      <div class="currency-row">
+        <span>🪙 <b id="cur-gold">0</b></span>
+        <span>🔮 <b id="cur-stone">0</b></span>
+        <span>💎 <b id="cur-crystal">0</b></span>
+        <span id="hud-equip" class="equip-tag">일반 +0</span>
+      </div>
+      <div id="party-buff-tag" class="party-buff hidden">🛡️ 파티 시너지 활성 (+15% ATK · +20% EXP)</div>
+    </div>
+
+    <!-- Top Center: Zone, World Event & Boss -->
+    <div class="top-center">
+      <div id="zone-banner" class="zone-banner">🏰 중앙 성채 마을 · 안전구역</div>
+      <div id="world-banner" class="world-hud hidden">
+        <div class="boss-name-row">
+          <span id="world-name">[월드 레이드] 고대 월드 드래곤</span>
+          <span id="world-timer">05:00</span>
+        </div>
+        <div class="bar-bg boss"><div id="world-fill" class="bar-fill world"></div><span id="world-prog-text" class="bar-text sm">100%</span></div>
+      </div>
+      <div id="boss-hud" class="boss-hud hidden">
+        <div class="boss-name-row">
+          <span id="boss-name">[보스]</span>
+          <span id="boss-hp-text">0 / 0</span>
+        </div>
+        <div class="bar-bg boss"><div id="boss-hp-fill" class="bar-fill boss"></div></div>
+      </div>
+      <div id="announce-banner" class="announce-banner hidden"></div>
+    </div>
+
+    <!-- Top Right: Minimap, Quests, Menus -->
+    <div class="top-right">
+      <div class="minimap-wrap">
+        <canvas id="minimap" width="140" height="140"></canvas>
+        <div id="online-badge" class="online-badge">🌐 1명 접속</div>
+      </div>
+      <div class="hud-panel quest-panel">
+        <div class="quest-header">📜 메인 퀘스트</div>
+        <div id="quest-title" class="quest-title">봄의 시작</div>
+        <div id="quest-desc" class="quest-desc">꽃잎 슬라임 4마리 처치 (0/4)</div>
+        <div id="quest-reward" class="quest-reward">보상: 180G · 🔮3 · 💎5</div>
+        <div class="daily-row">
+          <span id="daily-text">📅 일일: 몬스터 10처치 (0/10)</span>
+          <button id="btn-daily-claim" class="mini-btn hidden">수령</button>
+        </div>
+      </div>
+      <div class="menu-btns">
+        <button id="btn-auto" class="btn-menu">🤖 자동 <kbd>Z</kbd></button>
+        <button id="btn-open-class" class="btn-menu">⚔️ 전직 <kbd>J</kbd></button>
+        <button id="btn-open-upgrade" class="btn-menu">⚒️ 강화 <kbd>U</kbd></button>
+        <button id="btn-open-dungeon" class="btn-menu">🌀 던전 <kbd>B</kbd></button>
+        <button id="btn-open-map" class="btn-menu">🗺️ 맵 <kbd>M</kbd></button>
+        <button id="btn-open-title" class="btn-menu">🏆 칭호 <kbd>T</kbd></button>
+        <button id="btn-open-market" class="btn-menu">💎 거래소 <kbd>K</kbd></button>
+        <button id="btn-open-party" class="btn-menu">🛡️ 파티/랭킹 <kbd>P</kbd></button>
+        <button id="btn-open-coupon" class="btn-menu">🎟️ 쿠폰</button>
+        <button id="btn-logout" class="btn-menu icon" title="로그아웃 / 계정 변경">🚪</button>
+        <button id="btn-touch-toggle" class="btn-menu icon" title="모바일 패드">📱</button>
+        <button id="btn-mute" class="btn-menu icon" title="사운드">🔊</button>
+      </div>
+    </div>
+
+    <!-- Combo -->
+    <div id="combo-box" class="combo-box hidden">
+      <div id="combo-num" class="combo-num">0</div>
+      <div class="combo-label">COMBO!</div>
+    </div>
+
+    <!-- Interaction Prompt -->
+    <div id="interact-prompt" class="interact-prompt hidden">[E] 상호작용</div>
+
+    <!-- Bottom Left: Multiplayer Chat -->
+    <div class="chat-panel">
+      <div id="chat-log" class="chat-log"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" type="text" maxlength="140" placeholder="Enter로 채팅 입력... (/admin 키)" />
+        <button id="btn-chat-send" class="mini-btn">전송</button>
+      </div>
+    </div>
+
+    <!-- Bottom Center: Skill Hotbar -->
+    <div id="pc-skill-bar" class="skill-bar">
+      <div class="skill-slot clickable" data-act="attack"><div class="slot-key">LMB</div><div class="slot-name">기본공격</div></div>
+      <div class="skill-slot clickable" data-act="s1"><div class="slot-key">1</div><div id="s1-name" class="slot-name">스킬1</div><div id="s1-cd" class="cd-overlay hidden"></div></div>
+      <div class="skill-slot clickable" data-act="s2"><div class="slot-key">2</div><div id="s2-name" class="slot-name">스킬2</div><div id="s2-cd" class="cd-overlay hidden"></div></div>
+      <div class="skill-slot clickable" data-act="s3"><div class="slot-key">3</div><div id="s3-name" class="slot-name">궁극기</div><div id="s3-cd" class="cd-overlay hidden"></div></div>
+      <div class="skill-slot clickable" data-act="dash"><div class="slot-key">Q</div><div class="slot-name">대시</div><div id="dash-cd" class="cd-overlay hidden"></div></div>
+      <div class="skill-slot clickable" data-act="guard"><div class="slot-key">F</div><div class="slot-name">가드/패링</div><div id="guard-active" class="guard-glow hidden"></div></div>
+      <div class="skill-slot clickable" data-act="heal"><div class="slot-key">R</div><div class="slot-name">회복</div><div id="heal-cd" class="cd-overlay hidden"></div></div>
+    </div>
+
+    <!-- Mobile Touch Pad -->
+    <div id="mobile-pad" class="hidden">
+      <div id="joy-base" class="joy-base"><div id="joy-stick" class="joy-stick"></div></div>
+      <div class="mob-actions">
+        <button class="mob-btn atk" data-act="attack">⚔️</button>
+        <button class="mob-btn" data-act="s1">1</button>
+        <button class="mob-btn" data-act="s2">2</button>
+        <button class="mob-btn" data-act="s3">3</button>
+        <button class="mob-btn" data-act="dash">Q</button>
+        <button class="mob-btn" data-act="guard">F</button>
+        <button class="mob-btn" data-act="heal">R</button>
+        <button class="mob-btn" data-act="interact">E</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic Modal Container -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="modal-title">메뉴</h2>
+        <button id="btn-modal-close" class="close-btn">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast-box" class="toast-box"></div>
+
+  <script type="module" src="js/game.js"></script>
+</body>
+</html>

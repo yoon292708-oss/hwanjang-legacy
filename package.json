@@ -1,0 +1,9 @@
+{
+  "name": "crazy-odyssey",
+  "version": "1.0.0",
+  "description": "환장 래거시 (Hwanjang Legacy) — 사계절 오픈월드 3D 웹 MMORPG",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
