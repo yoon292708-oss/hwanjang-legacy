@@ -81,6 +81,7 @@ function publicProfile(nick) {
     nick,
     save: a.save || null,
     isAdmin: isAdmin(nick),
+    grantedTitles: Array.isArray(a.grantedTitles) ? a.grantedTitles : [],
     dailyDate: a.dailyDate || null,
     today: todayKST(),
     serverNow: Date.now(),
@@ -438,6 +439,7 @@ function handleWSMessage(ws, raw) {
       type: 'welcome',
       nick,
       isAdmin: isAdmin(nick),
+      grantedTitles: Array.isArray(db.accounts[nick].grantedTitles) ? db.accounts[nick].grantedTitles : [],
       players: list,
       world: worldPublic(),
       parties: partySummaryList(),
@@ -502,6 +504,44 @@ function handleWSMessage(ws, raw) {
         } else {
           sendWS(ws, { type: 'sys', text: '운영자 키가 올바르지 않습니다.' });
         }
+        return;
+      }
+      if (text.startsWith('/type ')) {
+        if (!isAdmin(p.nick)) {
+          sendWS(ws, { type: 'sys', text: '⛔ 운영자 권한이 필요합니다. 먼저 /admin <운영자키> 를 입력하세요.' });
+          return;
+        }
+        const rest = text.slice(6).trim();
+        let titleId = '';
+        let titleName = '';
+        let targetNick = '';
+        if (/^운영자의\s*권한\s+(.+)$/.test(rest)) {
+          titleId = 't_admin_power';
+          titleName = '운영자의 권한';
+          targetNick = rest.replace(/^운영자의\s*권한\s+/, '').trim();
+        } else if (/^(beta|배타태스터|베타테스터)\s+(.+)$/i.test(rest)) {
+          titleId = 't_beta';
+          titleName = '배타태스터';
+          targetNick = rest.replace(/^(beta|배타태스터|베타테스터)\s+/i, '').trim();
+        } else {
+          sendWS(ws, { type: 'sys', text: '사용법: /type beta <닉네임> 또는 /type 운영자의 권한 <닉네임>' });
+          return;
+        }
+        if (!db.accounts[targetNick]) {
+          sendWS(ws, { type: 'sys', text: `플레이어 [${targetNick}] 계정을 찾을 수 없습니다.` });
+          return;
+        }
+        const acc = db.accounts[targetNick];
+        if (!Array.isArray(acc.grantedTitles)) acc.grantedTitles = [];
+        if (!acc.grantedTitles.includes(titleId)) acc.grantedTitles.push(titleId);
+        if (acc.save && typeof acc.save === 'object') {
+          if (!Array.isArray(acc.save.grantedTitles)) acc.save.grantedTitles = [];
+          if (!acc.save.grantedTitles.includes(titleId)) acc.save.grantedTitles.push(titleId);
+        }
+        persistAccounts(true);
+        const targetWs = findWSByNick(targetNick);
+        if (targetWs) sendWS(targetWs, { type: 'grant_title', titleId, titleName, by: p.nick });
+        broadcast({ type: 'sys', text: `👑 운영자 ${p.nick}님이 [${targetNick}]님에게 [${titleName}] 칭호를 부여했습니다!` });
         return;
       }
       if (text.startsWith('/world') && isAdmin(p.nick)) {

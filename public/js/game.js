@@ -71,6 +71,7 @@ const state = {
   claimedSideQuests: [],
   shopWeapon: null,
   ownedWeapons: [],
+  grantedTitles: [],
 };
 
 function expNeeded(lv) {
@@ -1532,12 +1533,13 @@ function openMapModal() {
 }
 
 function openTitleModal() {
+  const unlockedCount = TITLES.filter((t) => t.cond(state)).length;
   const cards = TITLES.map((t) => {
     const unlocked = t.cond(state);
     const active = state.title === t.id;
     return `
-      <div class="item-card ${active ? 'active' : ''}">
-        <div class="item-title">[${t.name}] <span class="tier-tag">${unlocked ? '보유' : '잠금'}</span></div>
+      <div class="item-card ${active ? 'active' : ''}" ${t.special ? 'style="border-color:rgba(250,204,21,0.55)"' : ''}>
+        <div class="item-title">[${t.name}] <span class="tier-tag ${t.special ? 's' : ''}">${unlocked ? '보유' : t.special ? '특별' : '잠금'}</span></div>
         <div class="item-desc">${t.desc}</div>
         <div class="item-desc">보너스: ATK +${t.atkBonus} · HP +${t.hpBonus}</div>
         <button class="btn ${active ? 'sec' : 'primary'}" data-title="${t.id}" ${!unlocked || active ? 'disabled' : ''}>
@@ -1546,7 +1548,7 @@ function openTitleModal() {
       </div>
     `;
   }).join('');
-  openModal('🏆 칭호 도감', `<div class="card-grid">${cards}</div>`);
+  openModal(`🏆 칭호 도감 (보유 ${unlockedCount} / ${TITLES.length})`, `<div class="card-grid">${cards}</div>`);
   $('modal-body').querySelectorAll('[data-title]').forEach((b) => {
     b.onclick = () => {
       state.title = b.dataset.title;
@@ -2180,6 +2182,12 @@ function connectWS() {
 
     if (msg.type === 'welcome') {
       state.isAdmin = !!msg.isAdmin;
+      if (Array.isArray(msg.grantedTitles)) {
+        if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
+        for (const tid of msg.grantedTitles) {
+          if (!state.grantedTitles.includes(tid)) state.grantedTitles.push(tid);
+        }
+      }
       onlineCount = msg.online || 1;
       $('online-badge').textContent = `🌐 ${onlineCount}명 접속`;
       partiesList = msg.parties || [];
@@ -2211,7 +2219,21 @@ function connectWS() {
       addChatLine(escapeHtml(msg.text), 'sys');
     } else if (msg.type === 'admin_ok') {
       state.isAdmin = true;
-      showToast('🔑 운영자 권한이 부여되었습니다! (/world raid winter 85 사용 가능)');
+      showToast('🔑 운영자 권한이 부여되었습니다! (/world, /type beta <닉네임>, /type 운영자의 권한 <닉네임>)');
+    } else if (msg.type === 'grant_title') {
+      if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
+      if (msg.titleId && !state.grantedTitles.includes(msg.titleId)) state.grantedTitles.push(msg.titleId);
+      if (msg.titleId) state.title = msg.titleId;
+      const st = calcStats();
+      player.maxHp = st.maxHp;
+      player.hp = Math.min(player.hp, st.maxHp);
+      SFX.levelUp();
+      updateHUD();
+      saveGame();
+      showToast(`👑 운영자가 칭호 [${msg.titleName}]을(를) 부여했습니다!`);
+      if (!$('modal-backdrop').classList.contains('hidden') && $('modal-title').textContent.includes('칭호')) {
+        openTitleModal();
+      }
     } else if (msg.type === 'announce') {
       const b = $('announce-banner');
       b.textContent = `📢 ${msg.text}`;
@@ -2329,6 +2351,7 @@ function serializeSave() {
     claimedSideQuests: state.claimedSideQuests,
     shopWeapon: state.shopWeapon,
     ownedWeapons: state.ownedWeapons,
+    grantedTitles: state.grantedTitles,
   };
 }
 
@@ -2341,6 +2364,7 @@ function applySave(s) {
   if (!state.killCounts || typeof state.killCounts !== 'object') state.killCounts = {};
   if (!Array.isArray(state.claimedSideQuests)) state.claimedSideQuests = [];
   if (!Array.isArray(state.ownedWeapons)) state.ownedWeapons = [];
+  if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
 }
 
 async function saveGame(keepalive = false) {
@@ -2387,7 +2411,14 @@ async function startWithProfile(prof, isAutoLogin = false) {
   state.todayStr = prof.today;
   if (prof.save) {
     applySave(prof.save);
-  } else {
+  }
+  if (Array.isArray(prof.grantedTitles)) {
+    if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
+    for (const tid of prof.grantedTitles) {
+      if (!state.grantedTitles.includes(tid)) state.grantedTitles.push(tid);
+    }
+  }
+  if (!prof.save) {
     try {
       const rawBak = localStorage.getItem('ody_save_backup_' + prof.nick) || localStorage.getItem('ody_save_backup_last');
       if (rawBak) {
