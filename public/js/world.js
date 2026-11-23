@@ -86,6 +86,7 @@ export class WorldBuilder {
     this.npcs = [];
     this.bonfires = [];
     this.dummies = [];
+    this.lobbyCrystals = [];
     this.particles = null;
     this.waterMeshes = [];
     this.buildToken = 0;
@@ -100,6 +101,7 @@ export class WorldBuilder {
     this.npcs = [];
     this.bonfires = [];
     this.dummies = [];
+    this.lobbyCrystals = [];
     this.particles = null;
     this.waterMeshes = [];
   }
@@ -341,13 +343,38 @@ export class WorldBuilder {
       ['village/Blacksmith.glb', 19, -7, { height: 7.4, rotY: -Math.PI * 0.4 }],
       ['village/House_1.glb', -20, 15, { height: 6.8, rotY: Math.PI * 0.5 }],
       ['village/House_2.glb', 20, 16, { height: 7.0, rotY: -Math.PI * 0.5 }],
+      ['village/House_3.glb', -22, -17, { height: 6.4, rotY: Math.PI * 0.25 }],
+      ['village/House_4.glb', 12, -21, { height: 6.4, rotY: -Math.PI * 0.15 }],
       ['village/Bell_Tower.glb', -14, -21, { height: 11.5 }],
       ['village/MarketStand_1.glb', 12, 16, { height: 3.5, rotY: -Math.PI * 0.65 }],
+      ['village/MarketStand_2.glb', -18, 8.5, { height: 3.4, rotY: Math.PI * 0.45 }],
       ['village/Gazebo.glb', -12, 19, { height: 5.2 }],
+      ['village/Stable.glb', 23, 8.5, { height: 5.2, rotY: -Math.PI * 0.55 }],
+      ['village/Cart.glb', -14, -15, { height: 2.0, rotY: 0.8 }],
+      ['village/Cauldron.glb', 16.5, 9.5, { height: 1.35 }],
+      ['village/Hay.glb', 22, 12.5, { height: 1.5 }],
+      ['village/Bags.glb', -16.5, 11.5, { height: 1.1 }],
+      ['village/Package_1.glb', -15.5, 12.6, { height: 0.9 }],
+      ['village/Package_2.glb', 13.5, 18.2, { height: 1.0 }],
       ['village/Bench_1.glb', 5, -5, { height: 1.0, rotY: 0.7 }],
       ['village/Bench_2.glb', -5, 5, { height: 1.0, rotY: -2.4 }],
       ['village/Barrel.glb', 16, -12, { height: 1.2 }],
       ['village/Crate.glb', 17.5, -11, { height: 1.1 }],
+      ['castle/Dummy.glb', 15.5, -14.8, { height: 2.1, rotY: -0.7 }],
+      ['castle/TargetWithArrows.glb', 18.2, -13.8, { height: 2.0, rotY: -0.7 }],
+      ['nature/BirchTree_1.glb', 24.5, -15, { height: 6.5 }],
+      ['nature/Willow_2.glb', -25, -9, { height: 6.8 }],
+      ['nature/CommonTree_1.glb', -25, 9, { height: 6.6 }],
+      ['nature/BirchTree_2.glb', 25, 19, { height: 6.5 }],
+      // 4방위 마을 출입구 깃발 8개
+      ['castle/Banner.glb', 5.3, 28.5, { height: 4.2 }],
+      ['castle/Banner.glb', -5.3, 28.5, { height: 4.2 }],
+      ['castle/Banner.glb', 5.3, -28.5, { height: 4.2 }],
+      ['castle/Banner.glb', -5.3, -28.5, { height: 4.2 }],
+      ['castle/Banner.glb', 28.5, 5.3, { height: 4.2, rotY: Math.PI / 2 }],
+      ['castle/Banner.glb', 28.5, -5.3, { height: 4.2, rotY: Math.PI / 2 }],
+      ['castle/Banner.glb', -28.5, 5.3, { height: 4.2, rotY: Math.PI / 2 }],
+      ['castle/Banner.glb', -28.5, -5.3, { height: 4.2, rotY: Math.PI / 2 }],
     ];
 
     const fireLight = new THREE.PointLight(0xff944d, 4.5, 24);
@@ -362,6 +389,7 @@ export class WorldBuilder {
     this.group.add(healRing);
     this.bonfires.push({ x: 0, z: 0, r: 5.8, light: fireLight });
 
+    this._buildLobbyDecor(token);
     this._buildLobbyLogFence(token);
     this._buildBridgesAndPaths(token);
 
@@ -414,6 +442,60 @@ export class WorldBuilder {
       this._buildLandmarkBiomes(token),
       this._buildContinentNature(token),
     ]);
+  }
+
+  _buildLobbyDecor(token) {
+    // 중앙 광장 석조 바닥 문양 (원형 + 금빛 외곽 링)
+    const plazaFloor = new THREE.Mesh(
+      new THREE.CircleGeometry(10.5, 48),
+      new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.85, metalness: 0.05 })
+    );
+    plazaFloor.rotation.x = -Math.PI / 2;
+    plazaFloor.position.y = 0.025;
+    plazaFloor.receiveShadow = true;
+    this.group.add(plazaFloor);
+
+    const plazaTrim = new THREE.Mesh(
+      new THREE.RingGeometry(10.2, 10.65, 48),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    plazaTrim.rotation.x = -Math.PI / 2;
+    plazaTrim.position.y = 0.04;
+    this.group.add(plazaTrim);
+
+    // 모닥불에서 4방위 다리 입구까지 이어지는 마을 내부 돌길
+    const innerPaths = [];
+    for (let d = 7.5; d <= 30; d += 4.5) {
+      innerPaths.push({ x: 0, z: d, rotY: 0, scale: 1.1 });
+      innerPaths.push({ x: 0, z: -d, rotY: 0, scale: 1.1 });
+      innerPaths.push({ x: d, z: 0, rotY: Math.PI / 2, scale: 1.1 });
+      innerPaths.push({ x: -d, z: 0, rotY: Math.PI / 2, scale: 1.1 });
+    }
+    this._placeInstanced('village/Path_Straight.glb', innerPaths, 0.35, token, 'world');
+
+    // 광장 4모서리 마법 크리스탈 석조 가로등
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.75 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.35, metalness: 0.5 });
+    const crystalColors = [0x38bdf8, 0xf472b6, 0xfacc15, 0x4ade80];
+    const corners = [[7.8, 7.8], [-7.8, 7.8], [7.8, -7.8], [-7.8, -7.8]];
+    corners.forEach(([px, pz], idx) => {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 0.5, 8), pillarMat);
+      base.position.set(px, 0.25, pz);
+      base.castShadow = true;
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.32, 2.2, 8), pillarMat);
+      col.position.set(px, 1.45, pz);
+      col.castShadow = true;
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.3, 0.22, 8), trimMat);
+      cap.position.set(px, 2.6, pz);
+      const cCol = crystalColors[idx % crystalColors.length];
+      const crystal = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.42, 0),
+        new THREE.MeshStandardMaterial({ color: cCol, emissive: cCol, emissiveIntensity: 0.9, roughness: 0.2 })
+      );
+      crystal.position.set(px, 3.35, pz);
+      this.group.add(base, col, cap, crystal);
+      this.lobbyCrystals.push({ mesh: crystal, baseY: 3.35, phase: idx * 1.4 });
+    });
   }
 
   _buildLobbyLogFence(token) {
@@ -700,14 +782,15 @@ export class WorldBuilder {
       pushBucket(m, x, z, 0.7 + rand() * 0.95);
     }
 
-    // 마을 안 꽃 & 풀
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      const r = 26.5 + (i % 2) * 2.2;
+    // 마을 안 꽃 & 풀 & 덤불
+    for (let i = 0; i < 42; i++) {
+      const a = (i / 42) * Math.PI * 2;
+      const r = i < 16 ? 12.2 : (24.5 + (i % 3) * 1.8);
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       if (Math.abs(x) < 5.5 || Math.abs(z) < 5.5) continue;
-      pushBucket(i % 2 === 0 ? 'nature/Flowers.glb' : 'nature/Grass_Short.glb', x, z, 0.85);
+      const m = i % 3 === 0 ? 'nature/Flowers.glb' : i % 3 === 1 ? 'nature/BushBerries_1.glb' : 'nature/Grass_Short.glb';
+      pushBucket(m, x, z, i < 16 ? 0.95 : 0.85);
     }
 
     const jobs = [];
@@ -757,6 +840,10 @@ export class WorldBuilder {
     }
     for (const w of this.waterMeshes) {
       w.mesh.position.y = w.baseY + Math.sin(t * 1.8) * 0.035;
+    }
+    for (const lc of this.lobbyCrystals) {
+      lc.mesh.position.y = lc.baseY + Math.sin(t * 2.4 + lc.phase) * 0.14;
+      lc.mesh.rotation.y = t * 1.3 + lc.phase;
     }
     if (this.particles) {
       const pos = this.particles.pts.geometry.attributes.position;
