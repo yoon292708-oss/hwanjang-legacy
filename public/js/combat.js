@@ -141,20 +141,27 @@ export class VFXManager {
 
   slashArc(x, y, z, yaw, color = 0x38bdf8, radius = 3.2) {
     const g = new THREE.Group();
+    const flat = new THREE.Group();
+    flat.rotation.x = Math.PI / 2;
+    flat.position.z = 0.35;
+
+    const arcLen = Math.PI * 0.86;
     const m1 = vfxMat(color, 0.92, 0.9); m1.userData.baseOp = 0.92;
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.78, 0.16, 8, 24, Math.PI * 0.92), m1);
-    arc.rotation.x = Math.PI / 2;
-    arc.rotation.z = -Math.PI * 0.46;
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.72, 0.15, 8, 24, arcLen), m1);
+    arc.rotation.z = (Math.PI - arcLen) * 0.5;
+
+    const rimLen = Math.PI * 0.78;
     const m2 = vfxMat(0xffffff, 0.85, 1.1); m2.userData.baseOp = 0.85;
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.9, 0.07, 6, 24, Math.PI * 0.86), m2);
-    rim.rotation.x = Math.PI / 2;
-    rim.rotation.z = -Math.PI * 0.43;
-    g.add(arc, rim);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.84, 0.065, 6, 24, rimLen), m2);
+    rim.rotation.z = (Math.PI - rimLen) * 0.5;
+
+    flat.add(arc, rim);
+    flat.rotation.y = 0.18;
+    g.add(flat);
     g.position.set(x, y + 1.05, z);
-    g.rotation.y = yaw;
-    g.rotation.z = 0.22;
+    g.rotation.y = yaw - 0.25;
     this.scene.add(g);
-    this.effects.push({ mesh: g, age: 0, dur: 0.26, type: 'slash', spinY: 2.2 });
+    this.effects.push({ mesh: g, age: 0, dur: 0.26, type: 'slash', spinY: 2.0 });
   }
 
   ringBurst(x, y, z, radius = 5.0, color = 0x22d3ee) {
