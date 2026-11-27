@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>환장 래거시 (Hwanjang Legacy) — 사계절 3D 오픈월드 MMORPG</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>" />
   <link rel="stylesheet" href="style.css" />
   <script>
-    if (/KAKAOTALK/i.test(navigator.userAgent)) {
+    if (/KAKAOTALK/i.test(navigator.userAgent) && /Android/i.test(navigator.userAgent)) {
       location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
     }
   </script>
@@ -126,7 +127,13 @@
     <div class="top-right">
       <div class="minimap-wrap">
         <canvas id="minimap" width="140" height="140"></canvas>
-        <div id="online-badge" class="online-badge">🌐 1명 접속</div>
+        <div id="online-badge" class="online-badge clickable" title="접속 중인 친구 및 파티 보기">🌐 1명</div>
+      </div>
+      <div class="mob-quick-row">
+        <button id="btn-mob-auto" class="btn-menu mob-only">🤖 자동</button>
+        <button id="btn-mob-friends" class="btn-menu mob-only">👥 친구</button>
+        <button id="btn-mob-chat" class="btn-menu mob-only">💬 채팅</button>
+        <button id="btn-mob-menu" class="btn-menu mob-only">☰ 메뉴</button>
       </div>
       <div id="quest-panel" class="hud-panel quest-panel clickable">
         <div class="quest-header">📜 메인 퀘스트 <span class="quest-more">전체보기 ▸</span></div>
@@ -192,6 +199,7 @@
       <div id="joy-base" class="joy-base"><div id="joy-stick" class="joy-stick"></div></div>
       <div class="mob-actions">
         <button class="mob-btn atk" data-act="attack">⚔️</button>
+        <button class="mob-btn jump" data-act="jump">점프</button>
         <button class="mob-btn" data-act="s1">1</button>
         <button class="mob-btn" data-act="s2">2</button>
         <button class="mob-btn" data-act="s3">3</button>
@@ -218,6 +226,7 @@
 
   <div id="toast-box" class="toast-box"></div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="js/game.js"></script>
 </body>
 </html>

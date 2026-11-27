@@ -1,19 +1,21 @@
-* { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+* { box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 html, body {
-  margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-  background: #0b1120; color: #f8fafc;
+  margin: 0; padding: 0; width: 100%; height: 100dvh; overflow: hidden;
+  background: #0b1120; color: #f8fafc; touch-action: none; overscroll-behavior: none;
   font-family: 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
 }
-#canvas-wrap { position: fixed; inset: 0; z-index: 1; }
+#canvas-wrap { position: fixed; inset: 0; z-index: 1; touch-action: none; }
 #world-ui-layer, #damage-layer { position: fixed; inset: 0; pointer-events: none; z-index: 5; overflow: hidden; }
 .hidden { display: none !important; }
+.mob-only { display: none; }
+.mob-quick-row { display: none; gap: 4px; pointer-events: auto; }
 
 /* Overlay / Start */
 .overlay {
-  position: fixed; inset: 0; z-index: 50;
-  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 50; overflow-y: auto;
+  display: flex; align-items: safe center; justify-content: center;
   background: radial-gradient(circle at top, rgba(30, 58, 138, 0.72), rgba(2, 6, 23, 0.94));
-  backdrop-filter: blur(8px); padding: 16px;
+  backdrop-filter: blur(8px); padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
 }
 .start-card {
   width: 100%; max-width: 560px; background: rgba(15, 23, 42, 0.92);
@@ -135,7 +137,9 @@ html, body {
 .top-right { position: fixed; top: 12px; right: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: 255px; }
 .minimap-wrap { position: relative; pointer-events: auto; background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.3); border-radius: 14px; padding: 6px; }
 #minimap { display: block; border-radius: 10px; background: #0f172a; }
-.online-badge { position: absolute; bottom: 9px; left: 10px; font-size: 10.5px; font-weight: 700; background: rgba(2,6,23,0.8); padding: 2px 6px; border-radius: 6px; color: #4ade80; }
+.online-badge { position: absolute; bottom: 9px; left: 10px; font-size: 10.5px; font-weight: 700; background: rgba(2,6,23,0.85); padding: 2px 6px; border-radius: 6px; color: #4ade80; }
+.online-badge.clickable { pointer-events: auto; cursor: pointer; border: 1px solid rgba(74,222,128,0.35); }
+.online-badge.clickable:hover { border-color: #38bdf8; }
 
 .quest-panel { width: 100%; }
 .quest-header { font-size: 11.5px; font-weight: 800; color: #facc15; margin-bottom: 3px; }
@@ -351,22 +355,133 @@ html, body {
   padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,0.5);
 }
 
-/* Mobile Responsive Layout */
-@media (max-width: 900px) {
-  .start-card { padding: 18px; }
-  .start-card h1 { font-size: 26px; }
-  .top-left { width: 195px; padding: 8px 10px; top: 8px; left: 8px; }
-  .top-right { width: 175px; top: 8px; right: 8px; gap: 5px; }
-  #minimap { width: 92px; height: 92px; }
+/* Mobile Responsive Layout (Portrait & Landscape Phones) */
+@media (max-width: 900px), (max-height: 540px) and (pointer: coarse) {
+  .mob-only { display: inline-flex; align-items: center; justify-content: center; }
+  .mob-quick-row { display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 195px; }
+  .start-card { padding: 18px 16px; border-radius: 16px; }
+  .start-card h1 { font-size: 25px; }
+  .subtitle { font-size: 12px; margin-bottom: 12px; }
+  .controls-box { font-size: 10.5px; gap: 5px; padding: 8px; }
+  .auth-btns { flex-direction: column; }
+
+  /* Top Left Player Card - leaves room on right for Minimap */
+  .top-left {
+    top: calc(6px + env(safe-area-inset-top));
+    left: calc(6px + env(safe-area-inset-left));
+    width: calc(100vw - 122px);
+    max-width: 242px;
+    padding: 7px 9px;
+    border-radius: 11px;
+  }
+  .player-header { gap: 4px; margin-bottom: 3px; }
+  .lv-badge, .title-badge, .class-badge { font-size: 10px; padding: 1px 5px; }
+  .nick-row { font-size: 11.5px; margin-bottom: 4px; }
+  .pvp-pill { font-size: 10px; padding: 1px 6px; }
+  .bar-row { gap: 5px; margin-bottom: 3px; }
+  .bar-label { width: 22px; font-size: 9.5px; }
+  .bar-bg { height: 13px; }
+  .bar-bg.sm { height: 10px; }
+  .bar-text { font-size: 9.5px; }
+  .currency-row { font-size: 10.5px; gap: 6px; margin-top: 3px; }
+  .equip-tag { font-size: 10px; }
+  .party-buff { font-size: 9.5px; padding: 2px 5px; margin-top: 3px; }
+
+  /* Top Right Minimap + Quick Bar + Collapsible Drawer */
+  .top-right {
+    top: calc(6px + env(safe-area-inset-top));
+    right: calc(6px + env(safe-area-inset-right));
+    width: auto;
+    max-width: 195px;
+    gap: 4px;
+  }
+  .minimap-wrap { padding: 4px; border-radius: 10px; }
+  #minimap { width: 78px; height: 78px; border-radius: 7px; }
+  .online-badge { bottom: 5px; left: 5px; right: 5px; text-align: center; font-size: 9px; padding: 1px 4px; }
   .quest-panel { display: none; }
-  .menu-btns { gap: 4px; }
-  .btn-menu { padding: 5px 7px; font-size: 10.5px; }
+
+  .menu-btns {
+    display: none;
+    position: fixed;
+    top: calc(118px + env(safe-area-inset-top));
+    right: calc(6px + env(safe-area-inset-right));
+    width: min(286px, calc(100vw - 12px));
+    background: rgba(15, 23, 42, 0.96);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-radius: 12px;
+    padding: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    z-index: 45;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.7);
+  }
+  body.mob-menu-open .menu-btns { display: grid; }
+  .btn-menu { padding: 6px 6px; font-size: 10.5px; border-radius: 8px; white-space: nowrap; }
   .btn-menu kbd { display: none; }
-  .top-center { top: 8px; width: auto; max-width: 44vw; }
-  .zone-banner { font-size: 11px; padding: 4px 10px; }
-  .chat-panel { width: 180px; bottom: 152px; left: 8px; padding: 6px; }
-  .chat-log { height: 58px; font-size: 10.5px; }
+
+  /* Top Center pushed cleanly below Top Left + Minimap row */
+  .top-center {
+    top: calc(114px + env(safe-area-inset-top));
+    width: min(330px, 88vw);
+    gap: 4px;
+  }
+  .zone-banner { font-size: 11px; padding: 4px 11px; }
+  .boss-hud, .world-hud { padding: 5px 8px; border-radius: 10px; }
+  .boss-name-row { font-size: 10.5px; }
+
+  /* Chat collapsible on phone so it never covers joystick or center screen */
+  .chat-panel {
+    display: none;
+    width: min(260px, 68vw);
+    bottom: calc(128px + env(safe-area-inset-bottom));
+    left: calc(8px + env(safe-area-inset-left));
+    padding: 6px;
+    z-index: 35;
+  }
+  body.mob-chat-open .chat-panel { display: block; }
+  .chat-log { height: 78px; font-size: 11px; }
+
   #pc-skill-bar { display: none; }
-  .interact-prompt { bottom: 156px; font-size: 12px; }
-  .toast-box { bottom: 195px; }
+  .combo-box { right: 12px; top: calc(155px + env(safe-area-inset-top)); }
+  .combo-num { font-size: 30px; }
+  .interact-prompt { bottom: calc(152px + env(safe-area-inset-bottom)); font-size: 11.5px; padding: 6px 13px; }
+  .toast-box { bottom: calc(188px + env(safe-area-inset-bottom)); width: 88vw; }
+
+  /* Compact Phone Thumb Ergonomic Controls */
+  .joy-base {
+    width: 96px; height: 96px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+    left: calc(12px + env(safe-area-inset-left));
+  }
+  .joy-stick { width: 38px; height: 38px; }
+  .mob-actions {
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    right: calc(8px + env(safe-area-inset-right));
+    width: 214px;
+    gap: 5px;
+  }
+  .mob-btn { width: 40px; height: 40px; font-size: 12px; }
+  .mob-btn.atk { width: 52px; height: 52px; font-size: 19px; }
+  .mob-btn.jump { width: 44px; height: 40px; font-size: 11px; background: rgba(2, 132, 199, 0.78); }
+
+  .modal-card { max-height: 90dvh; border-radius: 14px; }
+  .modal-head { padding: 12px 14px; }
+  .modal-head h2 { font-size: 16px; }
+  .modal-body { padding: 12px 14px; }
+  .card-grid { grid-template-columns: 1fr; }
+}
+
+/* Phone Landscape Specific Polish */
+@media (max-height: 520px) and (max-width: 960px) {
+  .top-left { max-width: 210px; padding: 5px 8px; }
+  .top-center { top: calc(6px + env(safe-area-inset-top)); width: 36vw; }
+  #minimap { width: 64px; height: 64px; }
+  .menu-btns { top: calc(96px + env(safe-area-inset-top)); }
+  .joy-base { width: 88px; height: 88px; bottom: 10px; left: 12px; }
+  .mob-actions { width: 236px; bottom: 8px; right: 10px; }
+  .mob-btn { width: 38px; height: 38px; font-size: 11px; }
+  .mob-btn.atk { width: 48px; height: 48px; font-size: 17px; }
+  .mob-btn.jump { width: 42px; height: 38px; }
+  .interact-prompt { bottom: 108px; }
+  .toast-box { bottom: 138px; }
 }

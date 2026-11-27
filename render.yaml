@@ -3,7 +3,7 @@ services:
     name: hwanjang-legacy
     runtime: node
     plan: free
-    buildCommand: ""
+    buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /api/ranking
     envVars:

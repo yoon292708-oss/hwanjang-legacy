@@ -1,6 +1,6 @@
 // =============================================================
 //  환장 래거시 (Hwanjang Legacy) 3D MMORPG 독립 서버
-//  - Zero-dependency HTTP + WebSocket (RFC 6455)
+//  - Express-free HTTP + Socket.IO (WebSocket + Polling Fallback)
 //  - 계정 회원가입/로그인/게스트, JSON 세이브, 일일퀘스트(KST)
 //  - 실시간 멀티플레이 동기화, 8인 파티, 거래소, PvP, 월드 보스 이벤트
 // =============================================================
@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const { Server } = require('socket.io');
 
 const PORT = Number(process.env.PORT || 3005);
 const ENTRY_PIN = String(process.env.ODY_ENTRY_PIN || '5090');
@@ -52,20 +53,70 @@ fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2));
 const marketData = loadJSON(MKT_FILE, { nextId: 1, listings: [] });
 marketData.listings = marketData.listings || [];
 
+let PgPool = null;
+try { ({ Pool: PgPool } = require('pg')); } catch {}
+const DATABASE_URL = process.env.DATABASE_URL || '';
+let pgPool = null;
+
 let saveTimer = null;
+let pgWriteQueue = Promise.resolve();
+function savePgKey(key, val) {
+  if (!pgPool) return;
+  pgWriteQueue = pgWriteQueue
+    .then(() => pgPool.query(
+      'INSERT INTO hwanjang_store (k, v, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = NOW()',
+      [key, JSON.stringify(val)]
+    ))
+    .catch((e) => console.error('PG save error:', key, e.message));
+}
+
 function writeAccountsNow() {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   const tmp = ACC_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(db));
   fs.renameSync(tmp, ACC_FILE);
+  savePgKey('accounts_db', db);
 }
 function persistAccounts(immediate = false) {
   if (immediate) { writeAccountsNow(); return; }
   if (saveTimer) return;
   saveTimer = setTimeout(writeAccountsNow, 500);
 }
-function persistCfg() { fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); }
-function persistMarket() { fs.writeFileSync(MKT_FILE, JSON.stringify(marketData, null, 2)); }
+function persistCfg() {
+  fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2));
+  savePgKey('cfg', cfg);
+}
+function persistMarket() {
+  fs.writeFileSync(MKT_FILE, JSON.stringify(marketData, null, 2));
+  savePgKey('market', marketData);
+}
+
+async function initPgStore() {
+  if (!DATABASE_URL || !PgPool) return;
+  try {
+    pgPool = new PgPool({
+      connectionString: DATABASE_URL,
+      ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
+    });
+    await pgPool.query('CREATE TABLE IF NOT EXISTS hwanjang_store (k TEXT PRIMARY KEY, v JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW())');
+    const res = await pgPool.query('SELECT k, v FROM hwanjang_store');
+    for (const row of res.rows) {
+      if (row.k === 'accounts_db' && row.v) {
+        db.accounts = row.v.accounts || {};
+        db.tokens = row.v.tokens || {};
+      } else if (row.k === 'cfg' && row.v) {
+        if (Array.isArray(row.v.admins)) cfg.admins = row.v.admins;
+      } else if (row.k === 'market' && row.v) {
+        marketData.nextId = row.v.nextId || 1;
+        marketData.listings = Array.isArray(row.v.listings) ? row.v.listings : [];
+      }
+    }
+    console.log(`🗄️  PostgreSQL 영구 저장소 연결 완료 (계정 ${Object.keys(db.accounts).length}개 로드됨)`);
+  } catch (e) {
+    console.error('⚠️ PostgreSQL 연결 실패 (로컬 파일/자동복구 모드로 동작):', e.message);
+    pgPool = null;
+  }
+}
 
 function todayKST() {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -78,8 +129,19 @@ function isAdmin(nick) {
 }
 const NICK_RE = /^[가-힣a-zA-Z0-9_]{2,14}$/;
 
+function sanitizeSave(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const s = { ...raw };
+  if (typeof s.level === 'number') s.level = Math.max(1, Math.min(99, Math.floor(s.level)));
+  return s;
+}
+
 function publicProfile(nick) {
   const a = db.accounts[nick];
+  if (!a.resumeSecret) {
+    a.resumeSecret = crypto.randomBytes(24).toString('hex');
+    persistAccounts();
+  }
   return {
     nick,
     save: a.save || null,
@@ -89,6 +151,8 @@ function publicProfile(nick) {
     today: todayKST(),
     serverNow: Date.now(),
     pendingGold: a.pendingGold || 0,
+    resumeSecret: a.resumeSecret,
+    persistentDb: !!pgPool,
   };
 }
 
@@ -145,7 +209,8 @@ async function handleAPI(req, res) {
       if (pw.length < 4 || pw.length > 32) return json(res, 400, { error: '비밀번호는 4~32자로 입력해주세요.' });
       if (db.accounts[nick]) return json(res, 409, { error: '이미 사용 중인 닉네임입니다.' });
       const salt = crypto.randomBytes(16).toString('hex');
-      db.accounts[nick] = { salt, hash: hashPw(pw, salt), created: Date.now(), save: null, dailyDate: null, pendingGold: 0 };
+      const resumeSecret = crypto.randomBytes(24).toString('hex');
+      db.accounts[nick] = { salt, hash: hashPw(pw, salt), resumeSecret, created: Date.now(), save: null, dailyDate: null, pendingGold: 0 };
       const token = crypto.randomBytes(24).toString('hex');
       db.tokens[token] = nick;
       persistAccounts(true);
@@ -155,13 +220,37 @@ async function handleAPI(req, res) {
       if (!hasValidPin(req, body)) return json(res, 403, { error: '입장 비밀번호(4자리) 확인이 필요합니다.' });
       const nick = String(body.nick || '').trim();
       const pw = String(body.pw || '');
-      const a = db.accounts[nick];
-      if (!a || hashPw(pw, a.salt) !== a.hash) return json(res, 401, { error: '닉네임 또는 비밀번호가 올바르지 않습니다.' });
+      let a = db.accounts[nick];
+      let restored = false;
+      if (!a) {
+        const restoreSecret = String(body.restoreSecret || '');
+        const restoreSave = sanitizeSave(body.restoreSave);
+        if (NICK_RE.test(nick) && pw.length >= 4 && pw.length <= 32 && restoreSecret.length >= 16 && restoreSave) {
+          const salt = crypto.randomBytes(16).toString('hex');
+          a = {
+            salt,
+            hash: hashPw(pw, salt),
+            resumeSecret: restoreSecret,
+            created: Date.now(),
+            save: restoreSave,
+            grantedTitles: Array.isArray(restoreSave.grantedTitles) ? restoreSave.grantedTitles : [],
+            dailyDate: null,
+            pendingGold: 0,
+            restoredAt: Date.now(),
+          };
+          db.accounts[nick] = a;
+          restored = true;
+        } else {
+          return json(res, 401, { error: '닉네임 또는 비밀번호가 올바르지 않습니다. (서버 재시작 시 기존 기기에서 자동 복구되거나 재가입이 필요합니다)' });
+        }
+      } else if (hashPw(pw, a.salt) !== a.hash) {
+        return json(res, 401, { error: '닉네임 또는 비밀번호가 올바르지 않습니다.' });
+      }
       const token = crypto.randomBytes(24).toString('hex');
       db.tokens[token] = nick;
       a.lastLogin = Date.now();
       persistAccounts(true);
-      return json(res, 200, { token, ...publicProfile(nick) });
+      return json(res, 200, { token, restored, ...publicProfile(nick) });
     }
     if (route === 'guest') {
       if (!hasValidPin(req, body)) return json(res, 403, { error: '입장 비밀번호(4자리) 확인이 필요합니다.' });
@@ -172,11 +261,51 @@ async function handleAPI(req, res) {
       }
       if (!nick) nick = '모험가_' + crypto.randomBytes(2).toString('hex').toUpperCase();
       const salt = crypto.randomBytes(16).toString('hex');
-      db.accounts[nick] = { salt, hash: hashPw(crypto.randomBytes(8).toString('hex'), salt), created: Date.now(), save: null, dailyDate: null, pendingGold: 0, guest: true };
+      const resumeSecret = crypto.randomBytes(24).toString('hex');
+      db.accounts[nick] = { salt, hash: hashPw(crypto.randomBytes(8).toString('hex'), salt), resumeSecret, created: Date.now(), save: null, dailyDate: null, pendingGold: 0, guest: true };
       const token = crypto.randomBytes(24).toString('hex');
       db.tokens[token] = nick;
       persistAccounts(true);
       return json(res, 200, { token, ...publicProfile(nick) });
+    }
+    if (route === 'resume') {
+      if (!hasValidPin(req, body)) return json(res, 403, { error: '입장 비밀번호(4자리) 확인이 필요합니다.' });
+      const nick = String(body.nick || '').trim();
+      const resumeSecret = String(body.resumeSecret || '').trim();
+      if (!NICK_RE.test(nick) || resumeSecret.length < 16) {
+        return json(res, 400, { error: '복구 정보가 올바르지 않습니다.' });
+      }
+      const bakSave = sanitizeSave(body.save);
+      let a = db.accounts[nick];
+      let restored = false;
+      if (a) {
+        if (a.resumeSecret && a.resumeSecret !== resumeSecret) {
+          return json(res, 403, { error: '계정 복구 키가 일치하지 않습니다.' });
+        }
+        if (!a.resumeSecret) a.resumeSecret = resumeSecret;
+        if (!a.save && bakSave) a.save = bakSave;
+      } else {
+        const salt = crypto.randomBytes(16).toString('hex');
+        a = {
+          salt,
+          hash: hashPw(crypto.randomBytes(12).toString('hex'), salt),
+          resumeSecret,
+          created: Date.now(),
+          save: bakSave,
+          grantedTitles: Array.isArray(bakSave?.grantedTitles) ? bakSave.grantedTitles : [],
+          dailyDate: null,
+          pendingGold: 0,
+          guest: !!body.isGuest,
+          restoredAt: Date.now(),
+        };
+        db.accounts[nick] = a;
+        restored = true;
+      }
+      const token = crypto.randomBytes(24).toString('hex');
+      db.tokens[token] = nick;
+      a.lastLogin = Date.now();
+      persistAccounts(true);
+      return json(res, 200, { token, restored, ...publicProfile(nick) });
     }
     if (route === 'ranking') {
       const list = Object.entries(db.accounts)
@@ -244,43 +373,44 @@ async function handleAPI(req, res) {
   }
 }
 
-// ---------------- WebSocket Real-time Multiplayer ----------------
-function sendWS(ws, obj) {
-  if (!ws || ws.destroyed) return;
-  const payload = Buffer.from(JSON.stringify(obj), 'utf8');
-  const len = payload.length;
-  let header;
-  if (len < 126) {
-    header = Buffer.alloc(2);
-    header[0] = 0x81;
-    header[1] = len;
-  } else if (len < 65536) {
-    header = Buffer.alloc(4);
-    header[0] = 0x81;
-    header[1] = 126;
-    header.writeUInt16BE(len, 2);
-  } else {
-    header = Buffer.alloc(10);
-    header[0] = 0x81;
-    header[1] = 127;
-    header.writeBigUInt64BE(BigInt(len), 2);
-  }
-  try { ws.write(Buffer.concat([header, payload])); } catch {}
+// ---------------- Socket.IO Real-time Multiplayer ----------------
+function sendWS(sock, obj) {
+  if (!sock || sock.disconnected) return;
+  try { sock.emit('pkt', obj); } catch {}
 }
 
 const SAFE_ZONES = new Set(['village', 'mirage', 'abyss']);
-const players = new Map(); // ws -> { nick, zone, st, partyId }
+const players = new Map(); // socket -> { nick, zone, st, partyId }
 const parties = new Map(); // partyId -> { id, leader, name, members: Set<nick> }
 
 function eachPlayer(fn) {
-  for (const [ws, p] of players) if (!ws.destroyed && p.nick) fn(ws, p);
+  for (const [sock, p] of players) if (!sock.disconnected && p.nick) fn(sock, p);
 }
 function broadcast(obj, filter) {
-  eachPlayer((ws, p) => { if (!filter || filter(p, ws)) sendWS(ws, obj); });
+  eachPlayer((sock, p) => { if (!filter || filter(p, sock)) sendWS(sock, obj); });
 }
 function findWSByNick(nick) {
-  for (const [ws, p] of players) if (p.nick === nick && !ws.destroyed) return ws;
+  for (const [sock, p] of players) if (p.nick === nick && !sock.disconnected) return sock;
   return null;
+}
+function onlineSummaryList() {
+  const out = [];
+  eachPlayer((sock, p) => {
+    out.push({
+      nick: p.nick,
+      zone: p.zone || 'world',
+      lv: p.st?.lv || db.accounts[p.nick]?.save?.level || 1,
+      cls: p.st?.cls || db.accounts[p.nick]?.save?.cls || 'swordman',
+      partyId: p.partyId || null,
+      x: p.st?.x ?? 0,
+      z: p.st?.z ?? 12,
+    });
+  });
+  return out;
+}
+function broadcastOnlineUpdate() {
+  const list = onlineSummaryList();
+  broadcast({ type: 'online_update', count: list.length, players: list });
 }
 
 function partySummaryList() {
@@ -416,6 +546,7 @@ function cleanupSocket(ws) {
   if (p.nick) {
     leaveParty(p.nick);
     broadcast({ type: 'leave', nick: p.nick });
+    broadcastOnlineUpdate();
   }
 }
 
@@ -514,7 +645,7 @@ function handleAdminChatCommand(ws, p, text) {
     if (!targetWs) { sendWS(ws, { type: 'sys', text: `접속 중인 플레이어 [${targetNick}]을(를) 찾을 수 없습니다.` }); return true; }
     sendWS(targetWs, { type: 'kicked', reason: '운영자에 의해 접속이 종료되었습니다.' });
     cleanupSocket(targetWs);
-    try { targetWs.end(); } catch {}
+    try { targetWs.disconnect(true); } catch {}
     broadcast({ type: 'sys', text: `🔨 운영자가 [${targetNick}]님의 접속을 종료했습니다.` });
     return true;
   }
@@ -581,39 +712,54 @@ function handleAdminChatCommand(ws, p, text) {
 }
 
 function handleWSMessage(ws, raw) {
-  let msg;
-  try { msg = JSON.parse(raw); } catch { return; }
+  let msg = raw;
+  if (typeof raw === 'string') {
+    try { msg = JSON.parse(raw); } catch { return; }
+  }
+  if (!msg || typeof msg !== 'object') return;
 
   if (msg.type === 'hello') {
-    if (String(msg.pin || '').trim() !== ENTRY_PIN) { sendWS(ws, { type: 'auth_fail' }); return; }
+    if (String(msg.pin || '').trim() !== ENTRY_PIN) {
+      sendWS(ws, { type: 'auth_fail', reason: '입장 비밀번호가 일치하지 않습니다.' });
+      return;
+    }
     const nick = db.tokens[msg.token];
-    if (!nick || !db.accounts[nick]) { sendWS(ws, { type: 'auth_fail' }); return; }
+    if (!nick || !db.accounts[nick]) {
+      sendWS(ws, { type: 'auth_fail', reason: '로그인 세션이 만료되었습니다. 다시 로그인해 주세요.' });
+      return;
+    }
+    const existing = players.get(ws);
+    if (existing && existing.nick === nick) return;
     const old = findWSByNick(nick);
     if (old && old !== ws) {
-      sendWS(old, { type: 'kicked', reason: '다른 곳에서 같은 계정으로 접속했습니다.' });
+      sendWS(old, { type: 'kicked', reason: '다른 기기 또는 탭에서 같은 계정으로 접속했습니다.' });
       cleanupSocket(old);
-      try { old.end(); } catch {}
+      try { old.disconnect(true); } catch {}
     }
-    players.set(ws, { nick, zone: 'village', st: null, partyId: null });
+    players.set(ws, { nick, zone: 'world', st: null, partyId: null });
+    try { ws.join('zone:world'); } catch {}
     const list = [];
     eachPlayer((w2, p2) => {
       if (w2 !== ws && p2.st) list.push({ nick: p2.nick, zone: p2.zone, st: p2.st });
     });
+    const onlineList = onlineSummaryList();
     sendWS(ws, {
       type: 'welcome',
       nick,
       isAdmin: isAdmin(nick),
       grantedTitles: Array.isArray(db.accounts[nick].grantedTitles) ? db.accounts[nick].grantedTitles : [],
       players: list,
+      onlineList,
       world: worldPublic(),
       parties: partySummaryList(),
       market: marketData.listings,
       serverNow: Date.now(),
-      online: players.size,
+      online: onlineList.length,
       pendingGold: db.accounts[nick].pendingGold || 0,
     });
     db.accounts[nick].pendingGold = 0;
     persistAccounts();
+    broadcastOnlineUpdate();
     broadcast({ type: 'sys', text: `🌟 ${nick} 님이 환장 래거시에 접속했습니다.` }, (p) => p.nick !== nick);
     return;
   }
@@ -625,7 +771,7 @@ function handleWSMessage(ws, raw) {
     case 'state': {
       const st = msg.st || {};
       const prevZone = p.zone;
-      p.zone = String(st.zone || 'village').slice(0, 24);
+      p.zone = String(st.zone || 'world').slice(0, 24);
       p.st = {
         zone: p.zone,
         x: +st.x || 0, y: +st.y || 0, z: +st.z || 0, ry: +st.ry || 0,
@@ -633,6 +779,7 @@ function handleWSMessage(ws, raw) {
         lv: Math.floor(+st.lv || 1),
         cls: String(st.cls || 'swordman').slice(0, 20),
         title: String(st.title || 't1').slice(0, 16),
+        shopWep: st.shopWep ? String(st.shopWep).slice(0, 32) : null,
         hp: +st.hp || 0, mhp: +st.mhp || 1,
         grade: Math.floor(+st.grade || 0),
         enh: Math.floor(+st.enh || 0),
@@ -640,10 +787,12 @@ function handleWSMessage(ws, raw) {
         dead: !!st.dead,
       };
       if (prevZone && prevZone !== p.zone) {
-        broadcast({ type: 'leave_zone', nick: p.nick, zone: prevZone }, (q) => q.zone === prevZone && q.nick !== p.nick);
+        try { ws.leave('zone:' + prevZone); ws.join('zone:' + p.zone); } catch {}
+        ws.to('zone:' + prevZone).emit('pkt', { type: 'leave_zone', nick: p.nick, zone: prevZone });
+        broadcastOnlineUpdate();
       }
       const pkt = { type: 'st', nick: p.nick, st: p.st };
-      eachPlayer((w2, q) => { if (w2 !== ws && q.zone === p.zone) sendWS(w2, pkt); });
+      ws.to('zone:' + p.zone).emit('pkt', pkt);
       break;
     }
     case 'act': {
@@ -654,7 +803,24 @@ function handleWSMessage(ws, raw) {
         cls: p.st?.cls || 'swordman',
         tx: +msg.tx || 0, ty: +msg.ty || 0, tz: +msg.tz || 0,
       };
-      eachPlayer((w2, q) => { if (w2 !== ws && q.zone === p.zone) sendWS(w2, pkt); });
+      ws.to('zone:' + p.zone).emit('pkt', pkt);
+      break;
+    }
+    case 'friend_warp': {
+      const targetNick = String(msg.targetNick || '').trim();
+      const tw = targetNick ? findWSByNick(targetNick) : null;
+      const tp = tw && players.get(tw);
+      if (!tp) {
+        sendWS(ws, { type: 'sys', text: `[${targetNick}] 님을 찾을 수 없습니다.` });
+        return;
+      }
+      sendWS(ws, {
+        type: 'warp_to',
+        targetNick: tp.nick,
+        zone: tp.zone || 'world',
+        x: (tp.st?.x ?? 0) + 2,
+        z: (tp.st?.z ?? 12) + 2,
+      });
       break;
     }
     case 'chat': {
@@ -836,49 +1002,19 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.on('upgrade', (req, socket) => {
-  const key = req.headers['sec-websocket-key'];
-  if (!key) { socket.destroy(); return; }
-  const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
-  socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\n' +
-    'Upgrade: websocket\r\n' +
-    'Connection: Upgrade\r\n' +
-    `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
-  );
-  let buf = Buffer.alloc(0);
-  socket.on('data', (chunk) => {
-    buf = Buffer.concat([buf, chunk]);
-    while (buf.length >= 2) {
-      const opcode = buf[0] & 0x0f;
-      const masked = (buf[1] & 0x80) !== 0;
-      let payloadLen = buf[1] & 0x7f;
-      let offset = 2;
-      if (payloadLen === 126) {
-        if (buf.length < 4) return;
-        payloadLen = buf.readUInt16BE(2);
-        offset = 4;
-      } else if (payloadLen === 127) {
-        if (buf.length < 10) return;
-        payloadLen = Number(buf.readBigUInt64BE(2));
-        offset = 10;
-      }
-      const maskLen = masked ? 4 : 0;
-      if (buf.length < offset + maskLen + payloadLen) return;
-      const mask = masked ? buf.subarray(offset, offset + 4) : null;
-      const data = Buffer.from(buf.subarray(offset + maskLen, offset + maskLen + payloadLen));
-      buf = buf.subarray(offset + maskLen + payloadLen);
+const io = new Server(server, {
+  cors: { origin: true, credentials: true },
+  transports: ['websocket', 'polling'],
+  pingInterval: 15000,
+  pingTimeout: 12000,
+});
 
-      if (opcode === 0x8) { cleanupSocket(socket); socket.end(); return; }
-      if (opcode === 0x9) { socket.write(Buffer.from([0x8a, 0x00])); continue; }
-      if (opcode === 0x1) {
-        if (mask) for (let i = 0; i < data.length; i++) data[i] ^= mask[i % 4];
-        handleWSMessage(socket, data.toString('utf8'));
-      }
-    }
+io.on('connection', (socket) => {
+  socket.on('pkt', (msg) => handleWSMessage(socket, msg));
+  socket.on('ping_rtt', (t, cb) => {
+    if (typeof cb === 'function') cb(t, Date.now());
   });
-  socket.on('close', () => cleanupSocket(socket));
-  socket.on('error', () => cleanupSocket(socket));
+  socket.on('disconnect', () => cleanupSocket(socket));
 });
 
 server.on('error', (err) => {
@@ -889,15 +1025,18 @@ server.on('error', (err) => {
   throw err;
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n⚔️  [환장 래거시] 서버 실행 중: http://localhost:${PORT}`);
-  console.log(`🔑 운영자 키: ${cfg.adminKey} (채팅에 /admin ${cfg.adminKey} 입력)`);
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        console.log(`🌐 로컬 네트워크 접속 주소: http://${net.address}:${PORT}`);
+(async () => {
+  await initPgStore();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n⚔️  [환장 래거시] 서버 실행 중: http://localhost:${PORT}`);
+    console.log(`🔑 운영자 키: ${cfg.adminKey} (채팅에 /admin ${cfg.adminKey} 입력)`);
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log(`🌐 로컬 네트워크 접속 주소: http://${net.address}:${PORT}`);
+        }
       }
     }
-  }
-});
+  });
+})();

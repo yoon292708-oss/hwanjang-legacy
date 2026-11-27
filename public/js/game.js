@@ -137,11 +137,28 @@ dirLight.shadow.camera.top = 55;
 dirLight.shadow.camera.bottom = -55;
 scene.add(dirLight);
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function applyCameraViewport() {
+  const w = Math.max(1, window.innerWidth);
+  const h = Math.max(1, window.innerHeight);
+  const aspect = w / h;
+  camera.aspect = aspect;
+  if (aspect < 1.0) {
+    const targetHfov = 68 * (Math.PI / 180);
+    const vfov = 2 * Math.atan(Math.tan(targetHfov / 2) / Math.max(0.42, aspect)) * (180 / Math.PI);
+    camera.fov = Math.min(82, Math.max(56, vfov));
+  } else if (h < 520) {
+    camera.fov = 52;
+  } else {
+    camera.fov = 56;
+  }
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', applyCameraViewport);
+window.addEventListener('orientationchange', () => setTimeout(applyCameraViewport, 120));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', applyCameraViewport);
+applyCameraViewport();
 
 const worldBuilder = new WorldBuilder(scene);
 const vfx = new VFXManager(scene, $('damage-layer'));
@@ -208,8 +225,12 @@ async function rebuildPlayerModel() {
 
 // ---------------- Remote Players & Multiplayer ----------------
 let ws = null;
+let socketIO = null;
 let wsConnected = false;
 let onlineCount = 1;
+let onlinePlayersList = [];
+let pingMs = null;
+let pingIntervalId = null;
 let partiesList = [];
 let myParty = null;
 let marketListings = [];
@@ -394,6 +415,18 @@ async function enterZone(zoneId, warpPos = null) {
 
   checkWorldEventSpawn();
   showToast(`📍 ${zoneId === 'world' ? getRegionAt(player.x, player.z).name : z.name}에 입장했습니다.`);
+  if (ws && wsConnected) {
+    ws.send(JSON.stringify({
+      type: 'state',
+      st: {
+        zone: player.zone, x: +player.x.toFixed(2), y: +player.y.toFixed(2), z: +player.z.toFixed(2),
+        ry: +player.ry.toFixed(2), an: player.inst?.currentKey || 'Idle',
+        lv: state.level, cls: state.cls, title: state.title, shopWep: state.shopWeapon,
+        hp: Math.ceil(player.hp), mhp: player.maxHp,
+        grade: state.equipGrade, enh: state.enh, pvpOn: player.pvpOn, dead: player.dead,
+      },
+    }));
+  }
   saveGame();
 }
 
@@ -1645,6 +1678,25 @@ async function openPartyRankingModal() {
       </div>`).join('') || '<p class="item-desc">아직 기록이 없습니다.</p>';
   } catch {}
 
+  const onlineRows = onlinePlayersList.length
+    ? onlinePlayersList.map((u) => {
+      const isMe = u.nick === state.nick;
+      const zoneName = u.zone === 'world'
+        ? getRegionAt(u.x || 0, u.z || 12).name
+        : (ZONES[u.zone]?.name || u.zone);
+      return `
+        <div class="list-row">
+          <div>
+            <b>${isMe ? '⭐ ' : '🟢 '}${escapeHtml(u.nick)}</b> · Lv.${u.lv} ${CLASSES[u.cls]?.name || '모험가'}
+            <div class="item-desc">위치: ${escapeHtml(zoneName)}${u.partyId ? ' · 파티중' : ''}</div>
+          </div>
+          ${isMe
+            ? `<span class="tier-tag">내 캐릭터</span>`
+            : `<button class="btn primary" data-friend-warp="${escapeHtml(u.nick)}">🚀 따라가기</button>`}
+        </div>`;
+    }).join('')
+    : '<p class="item-desc">서버에 연결 중입니다...</p>';
+
   const pRows = partiesList.length
     ? partiesList.map((pt) => {
       const joined = myParty && myParty.id === pt.id;
@@ -1661,7 +1713,18 @@ async function openPartyRankingModal() {
     }).join('')
     : '<p class="item-desc">생성된 파티가 없습니다. 파티를 만들어 시너지 버프(+15% ATK, +20% EXP)를 받으세요!</p>';
 
+  const connLabel = wsConnected
+    ? `🟢 실시간 연결됨${pingMs != null ? ` (${pingMs}ms)` : ''}`
+    : '🟡 서버 재연결 중...';
+
   const html = `
+    <div class="upgrade-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <h3 style="margin:0">👥 접속 중인 친구 / 유저 (${onlinePlayersList.length}명)</h3>
+        <span class="tier-tag">${connLabel}</span>
+      </div>
+      ${onlineRows}
+    </div>
     <div class="upgrade-box">
       <h3>🛡️ 8인 파티 시스템 (파티 시너지: ATK +15% · EXP +20%)</h3>
       <div class="row-inputs">
@@ -1673,8 +1736,15 @@ async function openPartyRankingModal() {
     <h3>🏆 서버 명예의 전당 (TOP 30)</h3>
     ${rankHtml}
   `;
-  openModal('🛡️ 파티 & 서버 랭킹', html);
+  openModal('👥 친구 · 파티 & 서버 랭킹', html);
 
+  $('modal-body').querySelectorAll('[data-friend-warp]').forEach((b) => {
+    b.onclick = () => {
+      if (!ws || !wsConnected) { showToast('서버에 연결 중입니다.'); return; }
+      ws.send(JSON.stringify({ type: 'friend_warp', targetNick: b.dataset.friendWarp }));
+      closeModal();
+    };
+  });
   $('btn-party-create').onclick = () => {
     if (!ws || !wsConnected) return;
     ws.send(JSON.stringify({ type: 'party_create', name: $('party-name-in').value.trim() || `${state.nick}의 파티` }));
@@ -2058,6 +2128,9 @@ document.querySelectorAll('.skill-slot.clickable').forEach((el) => {
 });
 function triggerAct(act) {
   if (act === 'attack') doAttack();
+  else if (act === 'jump') {
+    if (player.onGround && !player.dead) { player.vy = 10.5; player.onGround = false; }
+  }
   else if (act === 's1') doSkill(0);
   else if (act === 's2') doSkill(1);
   else if (act === 's3') doSkill(2);
@@ -2070,13 +2143,13 @@ function triggerAct(act) {
 }
 
 // Mobile joystick & pad
-if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 900) {
   $('mobile-pad').classList.remove('hidden');
 }
 $('btn-touch-toggle').onclick = () => $('mobile-pad').classList.toggle('hidden');
 document.querySelectorAll('.mob-btn').forEach((b) => {
-  b.addEventListener('touchstart', (e) => { e.preventDefault(); triggerAct(b.dataset.act); });
-  b.addEventListener('click', () => triggerAct(b.dataset.act));
+  b.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); triggerAct(b.dataset.act); }, { passive: false });
+  b.addEventListener('click', (e) => { e.stopPropagation(); triggerAct(b.dataset.act); });
 });
 const joyBase = $('joy-base');
 const joyStick = $('joy-stick');
@@ -2084,9 +2157,21 @@ let joyTouchId = null;
 let camTouchId = null;
 let camTouchX = 0;
 let camTouchY = 0;
+let pinchDist0 = null;
+let pinchCamDist0 = camDist;
+function twoFingerDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
 renderer.domElement.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    pinchDist0 = twoFingerDist(e.touches[0], e.touches[1]);
+    pinchCamDist0 = camDist;
+    camTouchId = null;
+    return;
+  }
   if (camTouchId === null && e.changedTouches.length) {
     const t = e.changedTouches[0];
+    if (t.identifier === joyTouchId) return;
     camTouchId = t.identifier;
     camTouchX = t.clientX;
     camTouchY = t.clientY;
@@ -2094,9 +2179,15 @@ renderer.domElement.addEventListener('touchstart', (e) => {
 }, { passive: true });
 joyBase.addEventListener('touchstart', (e) => {
   e.preventDefault();
+  e.stopPropagation();
   joyTouchId = e.changedTouches[0].identifier;
-});
+}, { passive: false });
 window.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2 && pinchDist0) {
+    const d = twoFingerDist(e.touches[0], e.touches[1]);
+    camDist = Math.max(6, Math.min(24, pinchCamDist0 * (pinchDist0 / Math.max(20, d))));
+  }
+  const maxR = Math.max(32, joyBase.clientWidth * 0.36);
   for (const t of e.changedTouches) {
     if (t.identifier === joyTouchId) {
       const r = joyBase.getBoundingClientRect();
@@ -2104,7 +2195,6 @@ window.addEventListener('touchmove', (e) => {
       const cy = r.top + r.height / 2;
       let dx = t.clientX - cx;
       let dy = t.clientY - cy;
-      const maxR = 40;
       const len = Math.hypot(dx, dy);
       if (len > maxR) { dx = (dx / len) * maxR; dy = (dy / len) * maxR; }
       joyStick.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
@@ -2116,8 +2206,9 @@ window.addEventListener('touchmove', (e) => {
       camTouchY = t.clientY;
     }
   }
-});
+}, { passive: true });
 window.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) pinchDist0 = null;
   for (const t of e.changedTouches) {
     if (t.identifier === joyTouchId) {
       joyTouchId = null;
@@ -2133,9 +2224,31 @@ function toggleAutoHunt() {
   player.autoHunt = !player.autoHunt;
   $('btn-auto').classList.toggle('active', player.autoHunt);
   $('btn-auto').innerHTML = `🤖 자동 ${player.autoHunt ? 'ON' : 'OFF'} <kbd>Z</kbd>`;
+  if ($('btn-mob-auto')) {
+    $('btn-mob-auto').classList.toggle('active', player.autoHunt);
+    $('btn-mob-auto').textContent = `🤖 ${player.autoHunt ? 'ON' : '자동'}`;
+  }
   showToast(player.autoHunt ? '🤖 자동 사냥 시작!' : '🤖 자동 사냥 중지');
 }
 $('btn-auto').onclick = toggleAutoHunt;
+if ($('btn-mob-auto')) $('btn-mob-auto').onclick = toggleAutoHunt;
+if ($('btn-mob-friends')) $('btn-mob-friends').onclick = openPartyRankingModal;
+if ($('online-badge')) $('online-badge').onclick = openPartyRankingModal;
+if ($('btn-mob-chat')) $('btn-mob-chat').onclick = () => {
+  document.body.classList.toggle('mob-chat-open');
+  $('btn-mob-chat').classList.toggle('active', document.body.classList.contains('mob-chat-open'));
+};
+if ($('btn-mob-menu')) $('btn-mob-menu').onclick = (e) => {
+  e.stopPropagation();
+  document.body.classList.toggle('mob-menu-open');
+  $('btn-mob-menu').classList.toggle('active', document.body.classList.contains('mob-menu-open'));
+};
+document.querySelectorAll('.menu-btns .btn-menu').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.body.classList.remove('mob-menu-open');
+    if ($('btn-mob-menu')) $('btn-mob-menu').classList.remove('active');
+  });
+});
 $('btn-open-quest').onclick = openQuestModal;
 $('btn-open-shop').onclick = openShopModal;
 $('quest-panel').onclick = (e) => { if (e.target !== $('btn-daily-claim')) openQuestModal(); };
@@ -2181,196 +2294,282 @@ function sendChat() {
 }
 $('btn-chat-send').onclick = sendChat;
 
-function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${proto}//${location.host}`);
-  ws.onopen = () => {
-    wsConnected = true;
-    ws.send(JSON.stringify({ type: 'hello', token: state.token, pin: verifiedEntryPin }));
-  };
-  ws.onclose = () => {
-    wsConnected = false;
-    setTimeout(() => { if (state.token && state.nick) connectWS(); }, 2500);
-  };
-  ws.onmessage = (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
+function updateOnlineBadge() {
+  const badge = $('online-badge');
+  if (!badge) return;
+  if (!wsConnected) {
+    badge.textContent = '🟡 재연결 중...';
+    badge.style.color = '#facc15';
+    return;
+  }
+  const pingStr = pingMs != null ? ` · ${pingMs}ms` : '';
+  badge.textContent = `🌐 ${onlineCount}명${pingStr}`;
+  badge.style.color = '#4ade80';
+}
 
-    if (msg.type === 'welcome') {
-      state.isAdmin = !!msg.isAdmin;
-      if (Array.isArray(msg.grantedTitles)) {
-        if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
-        for (const tid of msg.grantedTitles) {
-          if (!state.grantedTitles.includes(tid)) state.grantedTitles.push(tid);
-        }
-      }
-      onlineCount = msg.online || 1;
-      $('online-badge').textContent = `🌐 ${onlineCount}명 접속`;
-      partiesList = msg.parties || [];
-      myParty = partiesList.find((pt) => pt.members.includes(state.nick)) || null;
-      marketListings = msg.market || [];
-      activeWorld = msg.world || null;
-      if (msg.pendingGold > 0) {
-        state.gold += msg.pendingGold;
-        showToast(`💰 오프라인 중 거래소 판매 수익 +${msg.pendingGold}G 수령!`);
-      }
-      for (const p of msg.players || []) upsertRemotePlayer(p.nick, p.st);
-      checkWorldEventSpawn();
-      updateHUD();
-    } else if (msg.type === 'st') {
-      upsertRemotePlayer(msg.nick, msg.st);
-    } else if (msg.type === 'leave' || msg.type === 'leave_zone') {
-      removeRemotePlayer(msg.nick);
-    } else if (msg.type === 'act') {
-      const rp = remotePlayers.get(msg.nick);
-      if (rp) {
-        const col = CLASSES[msg.cls]?.color || 0x38bdf8;
-        if (rp.inst) playAnim(rp.inst, [CLASSES[msg.cls]?.animAttack || '1H_Melee_Attack_Chop'], { loop: false });
-        if (msg.act === 'atk') vfx.slashArc(rp.x, rp.y, rp.z, rp.ry, col, 3.0);
-        else vfx.ringBurst(rp.x, rp.y, rp.z, 4.5, col);
-      }
-    } else if (msg.type === 'chat') {
-      addChatLine(`<b>[Lv.${msg.lv} ${escapeHtml(msg.nick)}]</b> ${escapeHtml(msg.text)}`);
-    } else if (msg.type === 'sys') {
-      addChatLine(escapeHtml(msg.text), 'sys');
-    } else if (msg.type === 'admin_ok') {
-      state.isAdmin = true;
-      showToast('🔑 운영자 권한 획득! 채팅에 /help 입력 시 명령어 목록을 볼 수 있습니다.');
-      addChatLine('👑 운영자 권한 활성화! (/help 입력 시 전체 명령어 확인)', 'admin');
-    } else if (msg.type === 'admin_grant') {
-      const notes = [];
-      if (typeof msg.gold === 'number') {
-        state.gold = Math.max(0, state.gold + msg.gold);
-        notes.push(`🪙 ${msg.gold >= 0 ? '+' : ''}${msg.gold.toLocaleString()}G`);
-      }
-      if (typeof msg.stone === 'number') {
-        state.stone = Math.max(0, state.stone + msg.stone);
-        notes.push(`🔮 ${msg.stone >= 0 ? '+' : ''}${msg.stone}`);
-      }
-      if (typeof msg.crystal === 'number') {
-        state.crystal = Math.max(0, state.crystal + msg.crystal);
-        notes.push(`💎 ${msg.crystal >= 0 ? '+' : ''}${msg.crystal}`);
-      }
-      if (typeof msg.level === 'number') {
-        state.level = Math.max(1, Math.min(99, Math.floor(msg.level)));
-        state.exp = 0;
-        notes.push(`⬆️ Lv.${state.level}`);
-      }
-      const st = calcStats();
-      player.maxHp = st.maxHp;
-      if (msg.heal || typeof msg.level === 'number') {
-        player.hp = st.maxHp;
-        if (msg.heal) notes.push('💚 HP 100% 회복');
+function handleServerPacket(msg) {
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'auth_fail') {
+    resumeActiveSession().then((ok) => {
+      if (ok && socketIO && socketIO.connected) {
+        socketIO.emit('pkt', { type: 'hello', token: state.token, pin: verifiedEntryPin });
       } else {
-        player.hp = Math.min(player.hp, st.maxHp);
+        showToast(`⚠️ ${msg.reason || '멀티플레이 인증에 실패했습니다.'}`);
       }
-      SFX.levelUp();
-      checkMainQuestProgress();
-      updateHUD();
-      saveGame();
-      if (notes.length) showToast(`👑 운영자 지급: ${notes.join(' · ')}`);
-    } else if (msg.type === 'kicked') {
-      showToast(`⛔ ${msg.reason || '접속이 종료되었습니다.'}`);
-      setTimeout(() => location.reload(), 1200);
-    } else if (msg.type === 'grant_title') {
+    });
+    return;
+  }
+  if (msg.type === 'welcome') {
+    state.isAdmin = !!msg.isAdmin;
+    if (Array.isArray(msg.grantedTitles)) {
       if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
-      if (msg.titleId && !state.grantedTitles.includes(msg.titleId)) state.grantedTitles.push(msg.titleId);
-      if (msg.titleId) state.title = msg.titleId;
-      const st = calcStats();
-      player.maxHp = st.maxHp;
-      player.hp = Math.min(player.hp, st.maxHp);
-      SFX.levelUp();
-      updateHUD();
-      saveGame();
-      showToast(`👑 운영자가 칭호 [${msg.titleName}]을(를) 부여했습니다!`);
-      if (!$('modal-backdrop').classList.contains('hidden') && $('modal-title').textContent.includes('칭호')) {
-        openTitleModal();
-      }
-    } else if (msg.type === 'announce') {
-      const b = $('announce-banner');
-      b.textContent = `📢 ${msg.text}`;
-      b.classList.remove('hidden');
-      setTimeout(() => b.classList.add('hidden'), 6000);
-    } else if (msg.type === 'parties') {
-      partiesList = msg.list || [];
-      myParty = partiesList.find((pt) => pt.members.includes(state.nick)) || null;
-      updateHUD();
-    } else if (msg.type === 'market_update') {
-      marketListings = msg.listings || [];
-    } else if (msg.type === 'market_listed') {
-      showToast(`📦 거래소에 [${msg.listing.itemName} × ${msg.listing.qty}] 등록 완료!`);
-      if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
-    } else if (msg.type === 'market_bought') {
-      const l = msg.listing;
-      state.gold = Math.max(0, state.gold - l.price);
-      if (l.itemType === 'stone') state.stone += l.qty;
-      else state.crystal += l.qty;
-      updateHUD(); saveGame();
-      showToast(`✅ [${l.itemName} × ${l.qty}] 구매 완료!`);
-      if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
-    } else if (msg.type === 'market_sold') {
-      state.gold += msg.listing.price;
-      updateHUD(); saveGame();
-      showToast(`💰 ${msg.buyer}님이 [${msg.listing.itemName}]을(를) 구매하여 +${msg.listing.price}G 획득!`);
-    } else if (msg.type === 'market_cancelled') {
-      const l = msg.listing;
-      if (l.itemType === 'stone') state.stone += l.qty;
-      else state.crystal += l.qty;
-      updateHUD(); saveGame();
-      showToast('거래소 등록이 취소되어 아이템을 돌려받았습니다.');
-      if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
-    } else if (msg.type === 'market_err') {
-      showToast(msg.reason);
-    } else if (msg.type === 'pvp_hit') {
-      if (player.dead || player.invulnTimer > 0) return;
-      if (player.guardActive && player.parryWindow > 0) {
-        SFX.parry();
-        vfx.popupText(new THREE.Vector3(player.x, player.y, player.z), '🛡️ PvP 패링!', 'parry', camera);
-        return;
-      }
-      const dmg = Math.max(1, Math.floor(msg.dmg * (player.guardActive ? 0.35 : 1)));
-      player.hp = Math.max(0, player.hp - dmg);
-      vfx.popupText(new THREE.Vector3(player.x, player.y, player.z), `⚔️ -${dmg}`, 'hurt', camera);
-      if (player.hp <= 0) {
-        player.dead = true;
-        player.respawnTimer = 3.0;
-        ws.send(JSON.stringify({ type: 'pvp_kill', killer: msg.from }));
-        showToast(`⚔️ ${msg.from}님에게 패배했습니다! 잠시 후 부활합니다.`);
-      }
-    } else if (msg.type === 'pvp_kill_credit') {
-      state.pvpWins++;
-      state.gold += 150;
-      showToast('🏆 PvP 승리! +150G 획득!');
-      updateHUD(); saveGame();
-    } else if (msg.type === 'world_start') {
-      activeWorld = msg.world;
-      worldSpawnedId = null;
-      addChatLine(`🚨 ${activeWorld.name} 시작! (${ZONES[activeWorld.zone]?.name || activeWorld.zone})`, 'admin');
-      showToast(`🚨 ${activeWorld.name} 발동!`);
-      if (wsConnected) ws.send(JSON.stringify({ type: 'wq_touch' }));
-      checkWorldEventSpawn();
-    } else if (msg.type === 'world_prog') {
-      if (activeWorld && activeWorld.id === msg.id) {
-        activeWorld.hp = msg.hp;
-        activeWorld.count = msg.count;
-        const wb = monsterMgr.mobs.find((m) => m.isWorldBoss);
-        if (wb && msg.hp !== undefined) wb.hp = msg.hp;
-      }
-    } else if (msg.type === 'world_end') {
-      activeWorld = null;
-      worldSpawnedId = null;
-      addChatLine(msg.msg, 'admin');
-      showToast(msg.msg);
-      if (msg.success && msg.contributed) {
-        const bonusMult = 0.6 + Math.min(1.5, (msg.share || 0) * 3);
-        const rwGold = Math.floor((350 + msg.level * 22) * bonusMult);
-        const rwStone = Math.max(3, Math.floor(4 * bonusMult));
-        const rwCrystal = Math.max(8, Math.floor(12 * bonusMult));
-        grantExpAndLoot(250 + msg.level * 25, rwGold, rwStone, rwCrystal, '__world__');
-        showToast(`🎁 월드 이벤트 참여 보상! +${rwGold}G +🔮${rwStone} +💎${rwCrystal}`);
+      for (const tid of msg.grantedTitles) {
+        if (!state.grantedTitles.includes(tid)) state.grantedTitles.push(tid);
       }
     }
+    onlineCount = msg.online || 1;
+    if (Array.isArray(msg.onlineList)) onlinePlayersList = msg.onlineList;
+    updateOnlineBadge();
+    partiesList = msg.parties || [];
+    myParty = partiesList.find((pt) => pt.members.includes(state.nick)) || null;
+    marketListings = msg.market || [];
+    activeWorld = msg.world || null;
+    if (msg.pendingGold > 0) {
+      state.gold += msg.pendingGold;
+      showToast(`💰 오프라인 중 거래소 판매 수익 +${msg.pendingGold}G 수령!`);
+    }
+    clearRemotePlayers();
+    for (const p of msg.players || []) upsertRemotePlayer(p.nick, p.st);
+    checkWorldEventSpawn();
+    updateHUD();
+  } else if (msg.type === 'online_update') {
+    onlineCount = msg.count || 1;
+    onlinePlayersList = Array.isArray(msg.players) ? msg.players : [];
+    updateOnlineBadge();
+    if (!$('modal-backdrop').classList.contains('hidden') && $('modal-title').textContent.includes('친구')) {
+      openPartyRankingModal();
+    }
+  } else if (msg.type === 'warp_to') {
+    const destZ = msg.zone || 'world';
+    enterZone(destZ, [msg.x || 0, msg.z || 12]).then(() => {
+      showToast(`🚀 [${msg.targetNick}] 님 위치로 이동했습니다!`);
+    });
+  } else if (msg.type === 'st') {
+    upsertRemotePlayer(msg.nick, msg.st);
+  } else if (msg.type === 'leave' || msg.type === 'leave_zone') {
+    removeRemotePlayer(msg.nick);
+  } else if (msg.type === 'act') {
+    const rp = remotePlayers.get(msg.nick);
+    if (rp) {
+      const col = CLASSES[msg.cls]?.color || 0x38bdf8;
+      if (rp.inst) playAnim(rp.inst, [CLASSES[msg.cls]?.animAttack || '1H_Melee_Attack_Chop'], { loop: false });
+      if (msg.act === 'atk') vfx.slashArc(rp.x, rp.y, rp.z, rp.ry, col, 3.0);
+      else vfx.ringBurst(rp.x, rp.y, rp.z, 4.5, col);
+    }
+  } else if (msg.type === 'chat') {
+    addChatLine(`<b>[Lv.${msg.lv} ${escapeHtml(msg.nick)}]</b> ${escapeHtml(msg.text)}`);
+  } else if (msg.type === 'sys') {
+    addChatLine(escapeHtml(msg.text), 'sys');
+  } else if (msg.type === 'admin_ok') {
+    state.isAdmin = true;
+    showToast('🔑 운영자 권한 획득! 채팅에 /help 입력 시 명령어 목록을 볼 수 있습니다.');
+    addChatLine('👑 운영자 권한 활성화! (/help 입력 시 전체 명령어 확인)', 'admin');
+  } else if (msg.type === 'admin_grant') {
+    const notes = [];
+    if (typeof msg.gold === 'number') {
+      state.gold = Math.max(0, state.gold + msg.gold);
+      notes.push(`🪙 ${msg.gold >= 0 ? '+' : ''}${msg.gold.toLocaleString()}G`);
+    }
+    if (typeof msg.stone === 'number') {
+      state.stone = Math.max(0, state.stone + msg.stone);
+      notes.push(`🔮 ${msg.stone >= 0 ? '+' : ''}${msg.stone}`);
+    }
+    if (typeof msg.crystal === 'number') {
+      state.crystal = Math.max(0, state.crystal + msg.crystal);
+      notes.push(`💎 ${msg.crystal >= 0 ? '+' : ''}${msg.crystal}`);
+    }
+    if (typeof msg.level === 'number') {
+      state.level = Math.max(1, Math.min(99, Math.floor(msg.level)));
+      state.exp = 0;
+      notes.push(`⬆️ Lv.${state.level}`);
+    }
+    const st = calcStats();
+    player.maxHp = st.maxHp;
+    if (msg.heal || typeof msg.level === 'number') {
+      player.hp = st.maxHp;
+      if (msg.heal) notes.push('💚 HP 100% 회복');
+    } else {
+      player.hp = Math.min(player.hp, st.maxHp);
+    }
+    SFX.levelUp();
+    checkMainQuestProgress();
+    updateHUD();
+    saveGame();
+    if (notes.length) showToast(`👑 운영자 지급: ${notes.join(' · ')}`);
+  } else if (msg.type === 'kicked') {
+    showToast(`⛔ ${msg.reason || '접속이 종료되었습니다.'}`);
+    setTimeout(() => location.reload(), 1200);
+  } else if (msg.type === 'grant_title') {
+    if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
+    if (msg.titleId && !state.grantedTitles.includes(msg.titleId)) state.grantedTitles.push(msg.titleId);
+    if (msg.titleId) state.title = msg.titleId;
+    const st = calcStats();
+    player.maxHp = st.maxHp;
+    player.hp = Math.min(player.hp, st.maxHp);
+    SFX.levelUp();
+    updateHUD();
+    saveGame();
+    showToast(`👑 운영자가 칭호 [${msg.titleName}]을(를) 부여했습니다!`);
+    if (!$('modal-backdrop').classList.contains('hidden') && $('modal-title').textContent.includes('칭호')) {
+      openTitleModal();
+    }
+  } else if (msg.type === 'announce') {
+    const b = $('announce-banner');
+    b.textContent = `📢 ${msg.text}`;
+    b.classList.remove('hidden');
+    setTimeout(() => b.classList.add('hidden'), 6000);
+  } else if (msg.type === 'parties') {
+    partiesList = msg.list || [];
+    myParty = partiesList.find((pt) => pt.members.includes(state.nick)) || null;
+    updateHUD();
+  } else if (msg.type === 'market_update') {
+    marketListings = msg.listings || [];
+  } else if (msg.type === 'market_listed') {
+    showToast(`📦 거래소에 [${msg.listing.itemName} × ${msg.listing.qty}] 등록 완료!`);
+    if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
+  } else if (msg.type === 'market_bought') {
+    const l = msg.listing;
+    state.gold = Math.max(0, state.gold - l.price);
+    if (l.itemType === 'stone') state.stone += l.qty;
+    else state.crystal += l.qty;
+    updateHUD(); saveGame();
+    showToast(`✅ [${l.itemName} × ${l.qty}] 구매 완료!`);
+    if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
+  } else if (msg.type === 'market_sold') {
+    state.gold += msg.listing.price;
+    updateHUD(); saveGame();
+    showToast(`💰 ${msg.buyer}님이 [${msg.listing.itemName}]을(를) 구매하여 +${msg.listing.price}G 획득!`);
+  } else if (msg.type === 'market_cancelled') {
+    const l = msg.listing;
+    if (l.itemType === 'stone') state.stone += l.qty;
+    else state.crystal += l.qty;
+    updateHUD(); saveGame();
+    showToast('거래소 등록이 취소되어 아이템을 돌려받았습니다.');
+    if (!$('modal-backdrop').classList.contains('hidden')) openMarketModal();
+  } else if (msg.type === 'market_err') {
+    showToast(msg.reason);
+  } else if (msg.type === 'pvp_hit') {
+    if (player.dead || player.invulnTimer > 0) return;
+    if (player.guardActive && player.parryWindow > 0) {
+      SFX.parry();
+      vfx.popupText(new THREE.Vector3(player.x, player.y, player.z), '🛡️ PvP 패링!', 'parry', camera);
+      return;
+    }
+    const dmg = Math.max(1, Math.floor(msg.dmg * (player.guardActive ? 0.35 : 1)));
+    player.hp = Math.max(0, player.hp - dmg);
+    vfx.popupText(new THREE.Vector3(player.x, player.y, player.z), `⚔️ -${dmg}`, 'hurt', camera);
+    if (player.hp <= 0) {
+      player.dead = true;
+      player.respawnTimer = 3.0;
+      ws.send(JSON.stringify({ type: 'pvp_kill', killer: msg.from }));
+      showToast(`⚔️ ${msg.from}님에게 패배했습니다! 잠시 후 부활합니다.`);
+    }
+  } else if (msg.type === 'pvp_kill_credit') {
+    state.pvpWins++;
+    state.gold += 150;
+    showToast('🏆 PvP 승리! +150G 획득!');
+    updateHUD(); saveGame();
+  } else if (msg.type === 'world_start') {
+    activeWorld = msg.world;
+    worldSpawnedId = null;
+    addChatLine(`🚨 ${activeWorld.name} 시작! (${ZONES[activeWorld.zone]?.name || activeWorld.zone})`, 'admin');
+    showToast(`🚨 ${activeWorld.name} 발동!`);
+    if (wsConnected) ws.send(JSON.stringify({ type: 'wq_touch' }));
+    checkWorldEventSpawn();
+  } else if (msg.type === 'world_prog') {
+    if (activeWorld && activeWorld.id === msg.id) {
+      activeWorld.hp = msg.hp;
+      activeWorld.count = msg.count;
+      const wb = monsterMgr.mobs.find((m) => m.isWorldBoss);
+      if (wb && msg.hp !== undefined) wb.hp = msg.hp;
+    }
+  } else if (msg.type === 'world_end') {
+    activeWorld = null;
+    worldSpawnedId = null;
+    addChatLine(msg.msg, 'admin');
+    showToast(msg.msg);
+    if (msg.success && msg.contributed) {
+      const bonusMult = 0.6 + Math.min(1.5, (msg.share || 0) * 3);
+      const rwGold = Math.floor((350 + msg.level * 22) * bonusMult);
+      const rwStone = Math.max(3, Math.floor(4 * bonusMult));
+      const rwCrystal = Math.max(8, Math.floor(12 * bonusMult));
+      grantExpAndLoot(250 + msg.level * 25, rwGold, rwStone, rwCrystal, '__world__');
+      showToast(`🎁 월드 이벤트 참여 보상! +${rwGold}G +🔮${rwStone} +💎${rwCrystal}`);
+    }
+  }
+}
+
+function connectWS() {
+  if (typeof window.io !== 'function') {
+    showToast('❌ 실시간 통신 모듈을 불러오지 못했습니다. 새로고침해 주세요.');
+    return;
+  }
+  if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+  if (socketIO) {
+    try { socketIO.removeAllListeners(); socketIO.disconnect(); } catch {}
+  }
+
+  socketIO = window.io({
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 12000,
+  });
+
+  ws = {
+    send(raw) {
+      if (!socketIO || !socketIO.connected) return;
+      let obj = raw;
+      if (typeof raw === 'string') {
+        try { obj = JSON.parse(raw); } catch { return; }
+      }
+      socketIO.emit('pkt', obj);
+    },
+    close() {
+      if (socketIO) socketIO.disconnect();
+    },
   };
+
+  socketIO.on('connect', () => {
+    wsConnected = true;
+    updateOnlineBadge();
+    socketIO.emit('pkt', { type: 'hello', token: state.token, pin: verifiedEntryPin });
+    const measurePing = () => {
+      if (!socketIO || !socketIO.connected) return;
+      const t0 = performance.now();
+      socketIO.emit('ping_rtt', t0, () => {
+        pingMs = Math.max(1, Math.round(performance.now() - t0));
+        updateOnlineBadge();
+      });
+    };
+    measurePing();
+    pingIntervalId = setInterval(measurePing, 6000);
+  });
+
+  socketIO.on('disconnect', () => {
+    wsConnected = false;
+    pingMs = null;
+    if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+    updateOnlineBadge();
+  });
+
+  socketIO.on('connect_error', () => {
+    wsConnected = false;
+    updateOnlineBadge();
+  });
+
+  socketIO.on('pkt', handleServerPacket);
 }
 
 // ---------------- Auth & Persistence ----------------
@@ -2419,6 +2618,40 @@ function applySave(s) {
   if (!Array.isArray(state.grantedTitles)) state.grantedTitles = [];
 }
 
+let resumingSession = false;
+async function resumeActiveSession() {
+  if (resumingSession || !verifiedEntryPin || !state.nick) return false;
+  const secret = state.resumeSecret || localStorage.getItem('ody_resume_' + state.nick) || '';
+  if (!secret) return false;
+  resumingSession = true;
+  try {
+    const res = await fetch('/api/resume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-entry-pin': verifiedEntryPin },
+      body: JSON.stringify({
+        pin: verifiedEntryPin,
+        nick: state.nick,
+        resumeSecret: secret,
+        save: serializeSave(),
+        isGuest: state.nick.startsWith('모험가_'),
+      }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.token) {
+      state.token = data.token;
+      localStorage.setItem('ody_token', data.token);
+      if (data.resumeSecret) {
+        state.resumeSecret = data.resumeSecret;
+        localStorage.setItem('ody_resume_' + state.nick, data.resumeSecret);
+      }
+      return true;
+    }
+  } catch {}
+  finally { resumingSession = false; }
+  return false;
+}
+
 async function saveGame(keepalive = false) {
   const payload = serializeSave();
   try {
@@ -2427,12 +2660,15 @@ async function saveGame(keepalive = false) {
   } catch {}
   if (!state.token) return;
   try {
-    await fetch('/api/save', {
+    const res = await fetch('/api/save', {
       method: 'POST',
       keepalive,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.token}` },
       body: JSON.stringify({ save: payload }),
     });
+    if (res.status === 401 && !keepalive) {
+      await resumeActiveSession();
+    }
   } catch {}
 }
 window.addEventListener('beforeunload', () => { saveGame(true); });
@@ -2458,6 +2694,10 @@ async function startWithProfile(prof, isAutoLogin = false) {
   }
   state.nick = prof.nick;
   localStorage.setItem('ody_last_nick', prof.nick);
+  if (prof.resumeSecret) {
+    state.resumeSecret = prof.resumeSecret;
+    localStorage.setItem('ody_resume_' + prof.nick, prof.resumeSecret);
+  }
   state.isAdmin = !!prof.isAdmin;
   state.dailyDate = prof.dailyDate;
   state.todayStr = prof.today;
@@ -2472,7 +2712,7 @@ async function startWithProfile(prof, isAutoLogin = false) {
   }
   if (!prof.save) {
     try {
-      const rawBak = localStorage.getItem('ody_save_backup_' + prof.nick) || localStorage.getItem('ody_save_backup_last');
+      const rawBak = localStorage.getItem('ody_save_backup_' + prof.nick);
       if (rawBak) {
         const bak = JSON.parse(rawBak);
         if (bak && typeof bak === 'object') {
@@ -2494,29 +2734,61 @@ async function startWithProfile(prof, isAutoLogin = false) {
   await enterZone('world');
   updateHUD();
   connectWS();
-  if (isAutoLogin) showToast(`👋 ${prof.nick}님, 최근 계정으로 자동 로그인되었습니다!`);
+  if (prof.restored) showToast(`☁️ 서버 재시작 후 [${prof.nick}] 계정과 저장 데이터가 자동 복구되었습니다!`);
+  else if (isAutoLogin) showToast(`👋 ${prof.nick}님, 최근 계정으로 자동 로그인되었습니다!`);
 }
 
 let verifiedEntryPin = '';
 let gateBusy = false;
 
 async function tryAutoLoginAfterGate() {
-  if (!state.token) return false;
-  try {
-    const r = await fetch('/api/me', {
-      headers: { Authorization: `Bearer ${state.token}`, 'x-entry-pin': verifiedEntryPin },
-    });
-    if (r.ok) {
-      const prof = await r.json();
-      if (prof && prof.nick) {
-        await startWithProfile(prof, true);
-        return true;
+  if (state.token) {
+    try {
+      const r = await fetch('/api/me', {
+        headers: { Authorization: `Bearer ${state.token}`, 'x-entry-pin': verifiedEntryPin },
+      });
+      if (r.ok) {
+        const prof = await r.json();
+        if (prof && prof.nick) {
+          await startWithProfile(prof, true);
+          return true;
+        }
       }
-    } else if (r.status === 401) {
-      localStorage.removeItem('ody_token');
-      state.token = '';
-    }
-  } catch {}
+    } catch {}
+  }
+
+  const lastNick = localStorage.getItem('ody_last_nick') || '';
+  const resumeSecret = lastNick ? (localStorage.getItem('ody_resume_' + lastNick) || '') : '';
+  if (state.token && lastNick && resumeSecret) {
+    try {
+      let bakSave = null;
+      const rawBak = localStorage.getItem('ody_save_backup_' + lastNick);
+      if (rawBak) bakSave = JSON.parse(rawBak);
+      const r2 = await fetch('/api/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-entry-pin': verifiedEntryPin },
+        body: JSON.stringify({
+          pin: verifiedEntryPin,
+          nick: lastNick,
+          resumeSecret,
+          save: bakSave,
+          isGuest: lastNick.startsWith('모험가_'),
+        }),
+      });
+      if (r2.ok) {
+        const prof = await r2.json();
+        if (prof && prof.nick) {
+          await startWithProfile(prof, true);
+          return true;
+        }
+      }
+    } catch {}
+  }
+
+  if (state.token) {
+    localStorage.removeItem('ody_token');
+    state.token = '';
+  }
   return false;
 }
 
@@ -2572,10 +2844,19 @@ $('btn-auth-submit').onclick = async () => {
   const pw = $('auth-pw').value;
   $('auth-err').textContent = '';
   try {
+    let restoreSecret = '';
+    let restoreSave = null;
+    if (authMode === 'login' && nick) {
+      restoreSecret = localStorage.getItem('ody_resume_' + nick) || '';
+      try {
+        const rawBak = localStorage.getItem('ody_save_backup_' + nick);
+        if (rawBak) restoreSave = JSON.parse(rawBak);
+      } catch {}
+    }
     const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-entry-pin': verifiedEntryPin },
-      body: JSON.stringify({ nick, pw, pin: verifiedEntryPin }),
+      body: JSON.stringify({ nick, pw, pin: verifiedEntryPin, restoreSecret, restoreSave }),
     });
     const data = await res.json();
     if (!res.ok) { $('auth-err').textContent = data.error || '오류가 발생했습니다.'; return; }
@@ -2775,10 +3056,11 @@ function updatePlayer(dt) {
     else playAnim(player.inst, ['idle']);
   }
 
-  // Camera follow
-  const cx = player.x + Math.sin(camYaw) * Math.cos(camPitch) * camDist;
-  const cy = player.y + 1.8 + Math.sin(camPitch) * camDist;
-  const cz = player.z + Math.cos(camYaw) * Math.cos(camPitch) * camDist;
+  // Camera follow (adapt distance slightly on tall portrait phone screens)
+  const effDist = camDist * (camera.aspect < 0.85 ? 1.18 : camera.aspect < 1.0 ? 1.1 : 1.0);
+  const cx = player.x + Math.sin(camYaw) * Math.cos(camPitch) * effDist;
+  const cy = player.y + 1.8 + Math.sin(camPitch) * effDist;
+  const cz = player.z + Math.cos(camYaw) * Math.cos(camPitch) * effDist;
   camera.position.lerp(new THREE.Vector3(cx, cy, cz), Math.min(1, dt * 12));
   camera.lookAt(player.x, player.y + 1.5, player.z);
 
@@ -2809,7 +3091,10 @@ function updateRemotePlayers(dt) {
     rp.x += (rp.st.x - rp.x) * Math.min(1, dt * 10);
     rp.y += (rp.st.y - rp.y) * Math.min(1, dt * 10);
     rp.z += (rp.st.z - rp.z) * Math.min(1, dt * 10);
-    rp.ry = rp.st.ry;
+    let dr = (rp.st.ry || 0) - rp.ry;
+    while (dr > Math.PI) dr -= Math.PI * 2;
+    while (dr < -Math.PI) dr += Math.PI * 2;
+    rp.ry += dr * Math.min(1, dt * 12);
     rp.root.position.set(rp.x, rp.y, rp.z);
     rp.root.rotation.y = rp.ry;
     if (rp.inst && rp.st.an) playAnim(rp.inst, [rp.st.an, 'idle']);
