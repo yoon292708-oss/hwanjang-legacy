@@ -354,3 +354,42 @@ export async function preload(list, onEach) {
     )
   );
 }
+
+const rawSkillCache = new Map();
+
+function buildCenteredRawGLB(entry, targetSize = 2.0, centerY = true) {
+  const { scene, meta } = entry;
+  const clone = scene.clone(true);
+  const maxDim = Math.max(meta.size.x, meta.size.y, meta.size.z, 0.2);
+  const s = targetSize / maxDim;
+  clone.scale.setScalar(s);
+  const yShift = centerY ? -meta.center.y * s : -meta.minY * s;
+  clone.position.set(-meta.center.x * s, yShift, -meta.center.z * s);
+  const wrap = new THREE.Group();
+  wrap.add(clone);
+  return wrap;
+}
+
+export async function preloadRawSkillGLBs(paths) {
+  await Promise.all(paths.map(async (p) => {
+    try {
+      const g = await loadGLB(p);
+      const url = p.startsWith('.') || p.startsWith('/') ? p : BASE + p;
+      const meta = measure(url, g.scene);
+      rawSkillCache.set(p, { scene: g.scene, meta });
+    } catch {}
+  }));
+}
+
+export function spawnCachedSkillGLB(path, targetSize = 2.0, centerY = true) {
+  const cached = rawSkillCache.get(path);
+  if (cached) return buildCenteredRawGLB(cached, targetSize, centerY);
+  const holder = new THREE.Group();
+  loadGLB(path).then((g) => {
+    const url = path.startsWith('.') || path.startsWith('/') ? path : BASE + path;
+    const entry = { scene: g.scene, meta: measure(url, g.scene) };
+    rawSkillCache.set(path, entry);
+    holder.add(buildCenteredRawGLB(entry, targetSize, centerY));
+  }).catch(() => {});
+  return holder;
+}

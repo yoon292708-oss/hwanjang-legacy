@@ -2,8 +2,53 @@
 //  combat.js - 3D 스킬 이펙트 / 투사체 / 몬스터 AI / 소환수 / 데미지 팝업
 // =============================================================
 import * as THREE from 'three';
-import { instance, playAnim } from './assets.js';
+import { instance, playAnim, preloadRawSkillGLBs, spawnCachedSkillGLB } from './assets.js';
 import { getTerrainY } from './world.js';
+
+export const SKILL_GLB_PATHS = [
+  'skills/Thunder.glb',
+  'skills/Star.glb',
+  'skills/Bomb.glb',
+  'skills/Spikes.glb',
+  'skills/Hazard_Saw.glb',
+  'skills/Snowflake2.glb',
+  'skills/Sword_big_Golden.glb',
+  'skills/Katana.glb',
+  'skills/Dart_Golden.glb',
+  'skills/Skull2.glb',
+  'skills/Heart.glb',
+  'skills/Arrow.glb',
+  'skills/Spear.glb',
+  'skills/Crystal_Cluster.glb',
+  'skills/Dragon.glb',
+  'skills/Ring5.glb',
+];
+
+const PROJ_SHAPE_GLB = {
+  arrow: 'skills/Arrow.glb',
+  spear: 'skills/Spear.glb',
+  dart: 'skills/Dart_Golden.glb',
+  skull: 'skills/Skull2.glb',
+  snow: 'skills/Snowflake2.glb',
+  thunder: 'skills/Thunder.glb',
+  katana: 'skills/Katana.glb',
+  blade: 'skills/Katana.glb',
+  crescent: 'skills/Star.glb',
+  star: 'skills/Star.glb',
+  dragon: 'skills/Dragon.glb',
+  orb: 'skills/Crystal_Cluster.glb',
+};
+
+const METEOR_SHAPE_GLB = {
+  dragon: 'skills/Dragon.glb',
+  sword: 'skills/Sword_big_Golden.glb',
+  moon: 'skills/Star.glb',
+  snow: 'skills/Snowflake2.glb',
+  thunder: 'skills/Thunder.glb',
+  skull: 'skills/Skull2.glb',
+  crystal: 'skills/Crystal_Cluster.glb',
+  meteor: 'skills/Bomb.glb',
+};
 
 function vfxMat(color, opacity = 0.92, emissiveInt = 0.78) {
   return new THREE.MeshStandardMaterial({
@@ -27,100 +72,6 @@ function setGroupOpacity(obj, op) {
   });
 }
 
-function buildProjectileModel(shape, color, radius = 0.55) {
-  const g = new THREE.Group();
-  const s = Math.max(0.45, radius * 1.45);
-  const mk = (geo, col, op = 0.95, ei = 0.85) => {
-    const m = vfxMat(col, op, ei);
-    m.userData.baseOp = op;
-    return new THREE.Mesh(geo, m);
-  };
-
-  if (shape === 'crescent') {
-    const arc = mk(new THREE.TorusGeometry(s * 1.25, s * 0.16, 10, 24, Math.PI * 1.15), color, 0.96, 1.0);
-    arc.rotation.x = Math.PI / 2;
-    arc.rotation.z = -Math.PI * 0.08;
-    const inner = mk(new THREE.TorusGeometry(s * 0.95, s * 0.09, 8, 20, Math.PI * 0.95), 0xffffff, 0.88, 1.2);
-    inner.rotation.x = Math.PI / 2;
-    const gem = mk(new THREE.OctahedronGeometry(s * 0.34, 0), 0xfef08a, 0.95, 1.1);
-    g.add(arc, inner, gem);
-  } else if (shape === 'blade') {
-    const wing = mk(new THREE.TorusGeometry(s * 1.05, s * 0.15, 8, 18, Math.PI * 0.88), color, 0.95, 0.9);
-    wing.rotation.x = Math.PI / 2;
-    wing.rotation.z = Math.PI * 0.06;
-    const core = mk(new THREE.ConeGeometry(s * 0.26, s * 1.9, 6), 0xffffff, 0.9, 1.1);
-    core.rotation.x = Math.PI / 2;
-    g.add(wing, core);
-  } else if (shape === 'arrow') {
-    const shaft = mk(new THREE.CylinderGeometry(s * 0.07, s * 0.07, s * 2.1, 8), 0xfef08a, 0.95, 0.7);
-    shaft.rotation.x = Math.PI / 2;
-    const tip = mk(new THREE.ConeGeometry(s * 0.24, s * 0.65, 6), color, 0.98, 1.0);
-    tip.rotation.x = Math.PI / 2;
-    tip.position.z = s * 1.15;
-    const ring = mk(new THREE.TorusGeometry(s * 0.32, s * 0.05, 6, 16), color, 0.85, 0.9);
-    ring.position.z = -s * 0.5;
-    g.add(shaft, tip, ring);
-  } else if (shape === 'spear') {
-    const pole = mk(new THREE.CylinderGeometry(s * 0.08, s * 0.08, s * 2.5, 8), 0xe2e8f0, 0.92, 0.5);
-    pole.rotation.x = Math.PI / 2;
-    const head = mk(new THREE.ConeGeometry(s * 0.28, s * 0.95, 4), color, 0.98, 1.0);
-    head.rotation.x = Math.PI / 2;
-    head.position.z = s * 1.35;
-    const aura = mk(new THREE.TorusGeometry(s * 0.42, s * 0.07, 8, 18), color, 0.85, 0.95);
-    aura.position.z = s * 0.6;
-    g.add(pole, head, aura);
-  } else {
-    // 'orb'
-    const core = mk(new THREE.OctahedronGeometry(s * 0.65, 1), color, 0.96, 1.0);
-    const r1 = mk(new THREE.TorusGeometry(s * 0.95, s * 0.08, 8, 22), 0xffffff, 0.88, 1.1);
-    const r2 = mk(new THREE.TorusGeometry(s * 1.1, s * 0.07, 8, 22), color, 0.82, 0.9);
-    r1.rotation.x = Math.PI / 3;
-    r2.rotation.y = Math.PI / 3;
-    g.add(core, r1, r2);
-  }
-  return g;
-}
-
-function buildMeteorModel(shape, color) {
-  const g = new THREE.Group();
-  const mk = (geo, col, op = 0.96, ei = 0.9) => {
-    const m = vfxMat(col, op, ei);
-    m.userData.baseOp = op;
-    return new THREE.Mesh(geo, m);
-  };
-
-  if (shape === 'sword') {
-    // Giant 3D radiant sword plunging point-down
-    const blade = mk(new THREE.ConeGeometry(0.52, 4.4, 4), 0xf8fafc, 0.96, 1.05);
-    blade.rotation.x = Math.PI;
-    blade.position.y = 0.2;
-    const guard = mk(new THREE.BoxGeometry(2.1, 0.26, 0.42), color, 0.96, 0.9);
-    guard.position.y = 2.45;
-    const hilt = mk(new THREE.CylinderGeometry(0.16, 0.16, 1.1, 8), 0xfacc15, 0.95, 0.7);
-    hilt.position.y = 3.05;
-    const halo = mk(new THREE.TorusGeometry(1.45, 0.1, 8, 28), color, 0.9, 1.1);
-    halo.rotation.x = Math.PI / 2;
-    halo.position.y = 2.4;
-    g.add(blade, guard, hilt, halo);
-  } else if (shape === 'moon') {
-    const orb = mk(new THREE.SphereGeometry(1.55, 20, 20), color, 0.96, 1.05);
-    const r1 = mk(new THREE.TorusGeometry(2.3, 0.14, 10, 32), 0xffffff, 0.9, 1.15);
-    const r2 = mk(new THREE.TorusGeometry(2.75, 0.11, 10, 32), color, 0.85, 0.95);
-    r1.rotation.x = Math.PI * 0.36;
-    r2.rotation.x = -Math.PI * 0.36;
-    r2.rotation.y = Math.PI * 0.25;
-    g.add(orb, r1, r2);
-  } else {
-    const rock = mk(new THREE.DodecahedronGeometry(1.45, 0), color, 0.96, 0.9);
-    const ring1 = mk(new THREE.TorusGeometry(2.05, 0.14, 8, 24), 0xfef08a, 0.9, 1.1);
-    const ring2 = mk(new THREE.TorusGeometry(2.35, 0.1, 8, 24), color, 0.85, 0.95);
-    ring1.rotation.x = Math.PI / 2.6;
-    ring2.rotation.y = Math.PI / 2.6;
-    g.add(rock, ring1, ring2);
-  }
-  return g;
-}
-
 export class VFXManager {
   constructor(scene, damageLayer) {
     this.scene = scene;
@@ -128,6 +79,7 @@ export class VFXManager {
     this.effects = [];
     this.projectiles = [];
     this.telegraphs = [];
+    preloadRawSkillGLBs(SKILL_GLB_PATHS);
   }
 
   clear() {
@@ -164,46 +116,51 @@ export class VFXManager {
     this.effects.push({ mesh: g, age: 0, dur: 0.26, type: 'slash', spinY: 2.0 });
   }
 
-  ringBurst(x, y, z, radius = 5.0, color = 0x22d3ee) {
-    const g = new THREE.Group();
-    const mk = (geo, col, op = 0.9) => { const m = vfxMat(col, op, 0.95); m.userData.baseOp = op; return new THREE.Mesh(geo, m); };
-    const torus = mk(new THREE.TorusGeometry(0.9, 0.12, 10, 32), color, 0.92);
-    torus.rotation.x = Math.PI / 2;
-    torus.position.y = 0.25;
-    g.add(torus);
-    const spikeGeo = new THREE.ConeGeometry(0.18, 1.25, 5);
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      const sp = mk(spikeGeo, i % 2 === 0 ? color : 0xffffff, 0.85);
-      sp.position.set(Math.cos(a) * 0.75, 0.6, Math.sin(a) * 0.75);
-      sp.rotation.z = -Math.cos(a) * 0.35;
-      sp.rotation.x = Math.sin(a) * 0.35;
-      g.add(sp);
-    }
-    g.position.set(x, y + 0.1, z);
-    this.scene.add(g);
-    this.effects.push({ mesh: g, age: 0, dur: 0.48, type: 'burst', targetScale: Math.max(2.5, radius * 0.9), spinY: 4.5 });
-  }
-
-  meteor(tx, ty, tz, radius = 6.5, color = 0xf43f5e, onImpact = null, shape = 'meteor') {
-    const mesh = buildMeteorModel(shape, color);
-    mesh.position.set(shape === 'sword' ? tx : tx + 4, ty + 18, shape === 'sword' ? tz : tz + 4);
+  ringBurst(x, y, z, radius = 5.0, color = 0x22d3ee, skillGlb = 'skills/Crystal_Cluster.glb') {
+    const glbPath = skillGlb || 'skills/Crystal_Cluster.glb';
+    const baseSize = Math.max(2.2, radius * 0.65);
+    const mesh = spawnCachedSkillGLB(glbPath, baseSize, false);
+    mesh.position.set(x, y + 0.05, z);
     this.scene.add(mesh);
     this.effects.push({
-      mesh, age: 0, dur: 0.48, type: 'meteor',
+      mesh,
+      age: 0,
+      dur: 0.55,
+      type: 'burst',
+      rawGlb: true,
+      targetScale: Math.max(1.2, radius * 0.24),
+      spinY: glbPath.includes('Hazard_Saw') ? 10.5 : 4.2,
+    });
+  }
+
+  meteor(tx, ty, tz, radius = 6.5, color = 0xf43f5e, onImpact = null, shape = 'meteor', skillGlb = null) {
+    const glbPath = skillGlb || METEOR_SHAPE_GLB[shape] || 'skills/Bomb.glb';
+    const mesh = spawnCachedSkillGLB(glbPath, shape === 'dragon' ? 5.5 : 4.2, true);
+    if (shape === 'sword') mesh.rotation.x = Math.PI;
+    mesh.position.set(shape === 'sword' ? tx : tx + 4, ty + 18, shape === 'sword' ? tz : tz + 4);
+    this.scene.add(mesh);
+    const burstGlb = shape === 'snow' ? 'skills/Snowflake2.glb'
+      : shape === 'thunder' ? 'skills/Thunder.glb'
+        : shape === 'skull' ? 'skills/Skull2.glb'
+          : shape === 'dragon' ? 'skills/Dragon.glb'
+            : shape === 'moon' ? 'skills/Star.glb'
+              : 'skills/Crystal_Cluster.glb';
+    this.effects.push({
+      mesh, age: 0, dur: 0.48, type: 'meteor', rawGlb: true,
       startPos: mesh.position.clone(),
-      endPos: new THREE.Vector3(tx, ty + (shape === 'sword' ? 1.8 : 1.0), tz),
-      radius, color, onImpact,
+      endPos: new THREE.Vector3(tx, ty + (shape === 'sword' ? 1.8 : 1.2), tz),
+      radius, color, onImpact, burstGlb,
       spinY: shape === 'sword' ? 6.0 : 3.2,
     });
   }
 
-  spawnProjectile({ x, y, z, vx, vz, radius = 0.45, color = 0x38bdf8, dur = 1.4, pierce = false, shape = 'orb', onHit }) {
-    const mesh = buildProjectileModel(shape, color, radius);
+  spawnProjectile({ x, y, z, vx, vz, radius = 0.45, color = 0x38bdf8, dur = 1.4, pierce = false, shape = 'orb', skillGlb = null, onHit }) {
+    const glbPath = skillGlb || PROJ_SHAPE_GLB[shape] || 'skills/Crystal_Cluster.glb';
+    const mesh = spawnCachedSkillGLB(glbPath, Math.max(1.3, radius * 2.6), true);
     mesh.position.set(x, y + 1.15, z);
     mesh.rotation.y = Math.atan2(vx, vz);
     this.scene.add(mesh);
-    const spin = shape === 'orb' || shape === 'crescent' ? 7.5 : 0;
+    const spin = (shape === 'orb' || shape === 'crescent' || shape === 'star' || shape === 'snow' || shape === 'dart') ? 7.5 : 0;
     this.projectiles.push({ mesh, vx, vz, age: 0, dur, pierce, hitIds: new Set(), spin, onHit });
   }
 
@@ -258,12 +215,17 @@ export class VFXManager {
         e.mesh.scale.setScalar(0.85 + k * 0.5);
         setGroupOpacity(e.mesh, 1 - k);
       } else if (e.type === 'burst') {
-        e.mesh.scale.setScalar(0.8 + k * (e.targetScale || 5));
-        setGroupOpacity(e.mesh, 1 - k);
+        if (e.rawGlb) {
+          const s = k < 0.25 ? 0.3 + (k / 0.25) * 0.9 : 1.2 * (1 - (k - 0.25) / 0.75);
+          e.mesh.scale.setScalar(Math.max(0.05, s * (e.targetScale || 1.2)));
+        } else {
+          e.mesh.scale.setScalar(0.8 + k * (e.targetScale || 5));
+          setGroupOpacity(e.mesh, 1 - k);
+        }
       } else if (e.type === 'meteor') {
         e.mesh.position.lerpVectors(e.startPos, e.endPos, k);
         if (k >= 1) {
-          this.ringBurst(e.endPos.x, e.endPos.y - 0.6, e.endPos.z, e.radius, e.color);
+          this.ringBurst(e.endPos.x, e.endPos.y - 0.6, e.endPos.z, e.radius, e.color, e.burstGlb);
           if (e.onImpact) e.onImpact(e.endPos);
         }
       }
